@@ -1,79 +1,110 @@
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 
-// Create axios instance with default config
-const apiClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api',
-  timeout: 10000,
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+
+// Create axios instance
+const api: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
-})
+});
 
-// Request interceptor
-apiClient.interceptors.request.use(
+// Flag to prevent multiple refresh attempts
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: unknown) => void;
+  reject: (reason?: unknown) => void;
+}> = [];
+
+const processQueue = (error: Error | null, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// Request interceptor - add auth token
+api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Get token from localStorage if it exists
-    const token = localStorage.getItem('auth_token')
+    const token = localStorage.getItem('accessToken');
     if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`
+      config.headers.Authorization = `Bearer ${token}`;
     }
-    return config
+    return config;
   },
-  (error: AxiosError) => {
-    return Promise.reject(error)
-  }
-)
+  (error: AxiosError) => Promise.reject(error)
+);
 
-// Response interceptor
-apiClient.interceptors.response.use(
-  (response: AxiosResponse) => {
-    return response
-  },
-  (error: AxiosError) => {
-    // Handle common errors
-    if (error.response) {
-      switch (error.response.status) {
-        case 401:
-          // Handle unauthorized - clear token and redirect to login
-          localStorage.removeItem('auth_token')
-          window.location.href = '/login'
-          break
-        case 403:
-          console.error('Access forbidden')
-          break
-        case 404:
-          console.error('Resource not found')
-          break
-        case 500:
-          console.error('Internal server error')
-          break
-        default:
-          console.error('An error occurred:', error.message)
+// Response interceptor - handle 401 and token refresh
+api.interceptors.response.use(
+  (response: AxiosResponse) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    // Handle 401 Unauthorized
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // Queue the request while refreshing
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          if (originalRequest.headers) {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+          }
+          return api(originalRequest);
+        }).catch(err => Promise.reject(err));
       }
-    } else if (error.request) {
-      console.error('Network error - no response received')
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refreshToken');
+
+      if (refreshToken) {
+        try {
+          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+            refreshToken,
+          });
+
+          const { accessToken, refreshToken: newRefreshToken } = response.data.data.tokens;
+          
+          localStorage.setItem('accessToken', accessToken);
+          localStorage.setItem('refreshToken', newRefreshToken);
+
+          if (originalRequest.headers) {
+            originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+          }
+
+          processQueue(null, accessToken);
+          return api(originalRequest);
+        } catch (refreshError) {
+          processQueue(refreshError as Error, null);
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+          return Promise.reject(refreshError);
+        } finally {
+          isRefreshing = false;
+        }
+      } else {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
-    return Promise.reject(error)
+
+    return Promise.reject(error);
   }
-)
+);
 
-export default apiClient
+export default api;
 
-// Generic API methods
-export const api = {
-  get: <T>(url: string, params?: object) => 
-    apiClient.get<T>(url, { params }),
-  
-  post: <T>(url: string, data?: object) => 
-    apiClient.post<T>(url, data),
-  
-  put: <T>(url: string, data?: object) => 
-    apiClient.put<T>(url, data),
-  
-  patch: <T>(url: string, data?: object) => 
-    apiClient.patch<T>(url, data),
-  
-  delete: <T>(url: string) => 
-    apiClient.delete<T>(url),
-}
-
+export { API_BASE_URL };
