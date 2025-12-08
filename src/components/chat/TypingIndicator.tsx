@@ -17,3 +17,4 @@ export function TypingIndicator({ name }: TypingIndicatorProps) {
 
 export default TypingIndicator;
 
+

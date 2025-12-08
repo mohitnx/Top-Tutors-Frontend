@@ -257,3 +257,4 @@ export function useAudioRecorder(maxDuration = 300): UseAudioRecorderReturn {
 
 export default useAudioRecorder;
 
+

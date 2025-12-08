@@ -52,3 +52,4 @@ export function Avatar({ name, size = 'md', className = '' }: AvatarProps) {
 
 export default Avatar;
 
+
