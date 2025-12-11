@@ -496,3 +496,13 @@ input[type="range"]::-moz-range-track {
 .animate-recording {
   animation: recording-pulse 1s ease-in-out infinite;
 }
+
+/* Subtle pulse animation for pending items */
+@keyframes pulse-subtle {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.2); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}

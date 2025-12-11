@@ -1,11 +1,12 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Lightbulb, ArrowLeft, Mic, Paperclip, X, Loader2, Play, Pause, Trash2 } from 'lucide-react';
+import { Send, Lightbulb, ArrowLeft, Mic, Paperclip, X, Loader2, Play, Pause, Trash2, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { messagesApi } from '../api';
-import { MessageType } from '../types';
+import { MessageType, ProcessingStatusEvent, TutorAssignedEvent, AllTutorsBusyEvent } from '../types';
 import Button from '../components/ui/Button';
 import { Textarea } from '../components/ui/Input';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { useStudentNotifications } from '../hooks/useSocket';
 import toast from 'react-hot-toast';
 
 const questionTips = [
@@ -32,6 +33,11 @@ export function AskQuestion() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Processing status state
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatusEvent | null>(null);
+  const [showProcessingModal, setShowProcessingModal] = useState(false);
+  const pendingConversationRef = useRef<string | null>(null);
+
   const {
     isRecording,
     isPaused,
@@ -50,6 +56,39 @@ export function AskQuestion() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  // Handle processing status updates from backend
+  const handleProcessingStatus = useCallback((data: ProcessingStatusEvent) => {
+    console.log('[AskQuestion] Processing status:', data);
+    setProcessingStatus(data);
+  }, []);
+
+  // Handle tutor assigned
+  const handleTutorAssigned = useCallback((data: TutorAssignedEvent) => {
+    console.log('[AskQuestion] Tutor assigned:', data);
+    setShowProcessingModal(false);
+    setIsSubmitting(false);
+    toast.success(`${data.tutor.name} is ready to help you!`);
+    navigate(`/conversations/${data.conversationId}`);
+  }, [navigate]);
+
+  // Handle all tutors busy
+  const handleAllTutorsBusy = useCallback((data: AllTutorsBusyEvent) => {
+    console.log('[AskQuestion] All tutors busy:', data);
+    setProcessingStatus({
+      status: 'ALL_TUTORS_BUSY',
+      message: data.message,
+      progress: 100,
+    });
+    toast.error(data.message);
+  }, []);
+
+  // Subscribe to student notifications
+  useStudentNotifications({
+    onProcessingStatus: handleProcessingStatus,
+    onTutorAssigned: handleTutorAssigned,
+    onAllTutorsBusy: handleAllTutorsBusy,
+  });
+
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -64,6 +103,12 @@ export function AskQuestion() {
     }
 
     setIsSubmitting(true);
+    setShowProcessingModal(true);
+    setProcessingStatus({
+      status: 'RECEIVING',
+      message: 'Sending your question...',
+      progress: 10,
+    });
 
     try {
       const response = await messagesApi.sendMessage({
@@ -71,15 +116,35 @@ export function AskQuestion() {
         messageType: MessageType.TEXT,
       });
 
-      const tutorName = response.data.conversation.tutor?.user?.name || 'a tutor';
-      toast.success(`Your question has been sent to ${tutorName}!`);
-      
-      navigate(`/conversations/${response.data.conversation.id}`);
+      pendingConversationRef.current = response.data.conversation.id;
+
+      // If conversation already has a tutor, navigate immediately
+      if (response.data.conversation.tutor) {
+        const tutorName = response.data.conversation.tutor.user?.name || 'a tutor';
+        toast.success(`Your question has been sent to ${tutorName}!`);
+        setShowProcessingModal(false);
+        navigate(`/conversations/${response.data.conversation.id}`);
+      } else {
+        // Wait for tutor assignment via WebSocket
+        setProcessingStatus({
+          status: 'WAITING_FOR_TUTOR',
+          message: 'Waiting for an available tutor...',
+          progress: 80,
+        });
+        
+        // Set a timeout to navigate anyway after 10 seconds
+        setTimeout(() => {
+          if (pendingConversationRef.current) {
+            setShowProcessingModal(false);
+            navigate(`/conversations/${pendingConversationRef.current}`);
+          }
+        }, 10000);
+      }
     } catch (error: unknown) {
       console.error('Failed to send question:', error);
+      setShowProcessingModal(false);
       const err = error as { response?: { data?: { message?: string } } };
       toast.error(err.response?.data?.message || 'Failed to send your question. Please try again.');
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -100,41 +165,70 @@ export function AskQuestion() {
 
     setIsSubmitting(true);
     setUploadProgress(0);
+    setShowProcessingModal(true);
+    setProcessingStatus({
+      status: 'RECEIVING',
+      message: 'Uploading your voice message...',
+      progress: 10,
+    });
 
     try {
       const response = await messagesApi.sendAudioMessage(
         audioFile,
         undefined,
-        (progress) => setUploadProgress(progress)
+        (progress) => {
+          setUploadProgress(progress);
+          if (progress < 100) {
+            setProcessingStatus({
+              status: 'RECEIVING',
+              message: `Uploading... ${progress}%`,
+              progress: Math.min(progress / 2, 40),
+            });
+          }
+        }
       );
 
-      const tutorName = response.data.conversation.tutor?.user?.name || 'a tutor';
-      
+      pendingConversationRef.current = response.data.conversation.id;
+
       // Show classification info
       if (response.data.classification) {
         const { subject, topic, transcription } = response.data.classification;
-        toast.success(
-          <div>
-            <p className="font-medium">Question sent to {tutorName}!</p>
-            <p className="text-sm mt-1">Subject: {subject}</p>
-            {topic && <p className="text-sm">Topic: {topic}</p>}
-            {transcription && (
-              <p className="text-sm italic mt-1">"{transcription.slice(0, 50)}..."</p>
-            )}
-          </div>,
-          { duration: 5000 }
-        );
-      } else {
-        toast.success(`Your question has been sent to ${tutorName}!`);
+        setProcessingStatus({
+          status: 'CLASSIFYING',
+          message: `Detected: ${subject.replace('_', ' ')}${topic ? ` - ${topic}` : ''}`,
+          progress: 70,
+        });
       }
-      
-      navigate(`/conversations/${response.data.conversation.id}`);
+
+      // If conversation already has a tutor, navigate immediately
+      if (response.data.conversation.tutor) {
+        const tutorName = response.data.conversation.tutor.user?.name || 'a tutor';
+        toast.success(`Your question has been sent to ${tutorName}!`);
+        setShowProcessingModal(false);
+        navigate(`/conversations/${response.data.conversation.id}`);
+      } else {
+        // Wait for tutor assignment via WebSocket
+        setProcessingStatus({
+          status: 'WAITING_FOR_TUTOR',
+          message: 'Finding the best tutor for you...',
+          progress: 85,
+        });
+        
+        // Set a timeout to navigate anyway after 10 seconds
+        setTimeout(() => {
+          if (pendingConversationRef.current) {
+            setShowProcessingModal(false);
+            navigate(`/conversations/${pendingConversationRef.current}`);
+          }
+        }, 10000);
+      }
     } catch (error: unknown) {
       console.error('Failed to send audio:', error);
+      setShowProcessingModal(false);
       const err = error as { response?: { data?: { message?: string } } };
       toast.error(err.response?.data?.message || 'Failed to send audio. Please try again.');
-    } finally {
       setIsSubmitting(false);
+    } finally {
       setUploadProgress(0);
     }
   };
@@ -436,6 +530,80 @@ export function AskQuestion() {
           </div>
         </div>
       </div>
+
+      {/* Processing Modal */}
+      {showProcessingModal && processingStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
+            {/* Status Icon */}
+            <div className="mb-6">
+              {processingStatus.status === 'ALL_TUTORS_BUSY' ? (
+                <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-8 h-8 text-amber-600" />
+                </div>
+              ) : processingStatus.status === 'TUTOR_ASSIGNED' ? (
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+              ) : (
+                <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto">
+                  <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
+                </div>
+              )}
+            </div>
+
+            {/* Status Message */}
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              {processingStatus.status === 'RECEIVING' && 'Sending your question...'}
+              {processingStatus.status === 'TRANSCRIBING' && 'Transcribing audio...'}
+              {processingStatus.status === 'CLASSIFYING' && 'Analyzing your question...'}
+              {processingStatus.status === 'CREATING_CONVERSATION' && 'Creating conversation...'}
+              {processingStatus.status === 'NOTIFYING_TUTORS' && 'Finding tutors...'}
+              {processingStatus.status === 'WAITING_FOR_TUTOR' && 'Waiting for tutor...'}
+              {processingStatus.status === 'TUTOR_ASSIGNED' && 'Tutor found!'}
+              {processingStatus.status === 'ALL_TUTORS_BUSY' && 'All tutors are busy'}
+            </h3>
+            <p className="text-gray-600 mb-6">{processingStatus.message}</p>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+              <div 
+                className={`h-2 rounded-full transition-all duration-500 ${
+                  processingStatus.status === 'ALL_TUTORS_BUSY' 
+                    ? 'bg-amber-500' 
+                    : processingStatus.status === 'TUTOR_ASSIGNED'
+                      ? 'bg-green-500'
+                      : 'bg-primary-500'
+                }`}
+                style={{ width: `${processingStatus.progress}%` }}
+              />
+            </div>
+
+            {/* Status specific content */}
+            {processingStatus.status === 'WAITING_FOR_TUTOR' && (
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                <Clock className="w-4 h-4" />
+                <span>This usually takes a few seconds...</span>
+              </div>
+            )}
+
+            {processingStatus.status === 'ALL_TUTORS_BUSY' && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowProcessingModal(false);
+                  if (pendingConversationRef.current) {
+                    navigate(`/conversations/${pendingConversationRef.current}`);
+                  }
+                }}
+                className="mt-4"
+              >
+                Continue to chat anyway
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

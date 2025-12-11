@@ -1,37 +1,49 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { MessageSquare, Clock, CheckCircle, Bell } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { MessageSquare, Clock, CheckCircle, Bell, AlertCircle, UserPlus, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesApi } from '../../api';
-import { Conversation, ConversationStatus, NewAssignmentEvent } from '../../types';
+import { Conversation, ConversationStatus } from '../../types';
 import { ConversationItem } from '../../components/chat/ConversationItem';
 import { ConversationSkeleton } from '../../components/ui/Loading';
-import { NoConversations } from '../../components/ui/EmptyState';
-import { useTutorNotifications } from '../../hooks/useSocket';
+import { acceptConversation as socketAcceptConversation, rejectConversation as socketRejectConversation } from '../../services/socket';
+import { SubjectBadge, UrgencyBadge } from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
 import toast from 'react-hot-toast';
 
 export function TutorDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [pendingConversations, setPendingConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
     resolved: 0,
+    pending: 0,
   });
 
   const fetchConversations = useCallback(async () => {
     try {
-      const response = await messagesApi.getConversations(1, 10);
-      setConversations(response.data.data);
-      
+      const response = await messagesApi.getConversations(1, 20);
       const allConversations = response.data.data;
+      
+      // Separate pending from active/assigned
+      const pending = allConversations.filter(c => c.status === ConversationStatus.PENDING);
+      const nonPending = allConversations.filter(c => c.status !== ConversationStatus.PENDING);
+      
+      setPendingConversations(pending);
+      setConversations(nonPending);
+      
       setStats({
         total: response.data.meta.total,
-        active: allConversations.filter(c => 
+        pending: pending.length,
+        active: nonPending.filter(c => 
           c.status === ConversationStatus.ACTIVE || c.status === ConversationStatus.ASSIGNED
         ).length,
-        resolved: allConversations.filter(c => 
+        resolved: nonPending.filter(c => 
           c.status === ConversationStatus.RESOLVED || c.status === ConversationStatus.CLOSED
         ).length,
       });
@@ -42,54 +54,39 @@ export function TutorDashboard() {
     }
   }, []);
 
+  // Accept a pending conversation
+  const handleAcceptConversation = async (conversationId: string) => {
+    setAcceptingId(conversationId);
+    try {
+      // Try API first, fallback to socket
+      await messagesApi.acceptConversation(conversationId);
+      toast.success('Conversation accepted!');
+      navigate(`/conversations/${conversationId}`);
+    } catch (error) {
+      // Try socket as fallback
+      socketAcceptConversation(conversationId);
+      toast.success('Conversation accepted!');
+      navigate(`/conversations/${conversationId}`);
+    } finally {
+      setAcceptingId(null);
+    }
+  };
+
+  // Reject/dismiss a pending conversation
+  const handleRejectConversation = (conversationId: string) => {
+    socketRejectConversation(conversationId);
+    // Remove from local state
+    setPendingConversations(prev => prev.filter(c => c.id !== conversationId));
+    toast('Conversation dismissed');
+  };
+
   useEffect(() => {
     fetchConversations();
+    
+    // Refresh every 30 seconds to catch any missed updates
+    const interval = setInterval(fetchConversations, 30000);
+    return () => clearInterval(interval);
   }, [fetchConversations]);
-
-  // Handle new assignment notifications
-  const handleNewAssignment = useCallback((data: NewAssignmentEvent) => {
-    toast.custom((t) => (
-      <div
-        className={`${
-          t.visible ? 'animate-slide-down' : 'opacity-0'
-        } max-w-md w-full bg-white shadow-lg rounded pointer-events-auto flex border border-gray-200`}
-      >
-        <div className="flex-1 p-4">
-          <div className="flex items-start">
-            <div className="flex-shrink-0 pt-0.5">
-              <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                <Bell className="h-5 w-5 text-primary-600" />
-              </div>
-            </div>
-            <div className="ml-3 flex-1">
-              <p className="text-sm font-medium text-gray-900">
-                New question assigned!
-              </p>
-              <p className="mt-1 text-sm text-gray-500">
-                {data.studentName} needs help with {data.subject}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="flex border-l border-gray-200">
-          <Link
-            to={`/conversations/${data.conversationId}`}
-            onClick={() => toast.dismiss(t.id)}
-            className="w-full border border-transparent rounded-none rounded-r p-4 flex items-center justify-center text-sm font-medium text-primary-600 hover:text-primary-700 hover:bg-gray-50 focus:outline-none"
-          >
-            View
-          </Link>
-        </div>
-      </div>
-    ), { duration: 10000 });
-
-    // Refresh conversations
-    fetchConversations();
-  }, [fetchConversations]);
-
-  useTutorNotifications({
-    onAssignment: handleNewAssignment,
-  });
 
   const activeConversations = conversations.filter(
     c => c.status === ConversationStatus.ACTIVE || c.status === ConversationStatus.ASSIGNED
@@ -108,7 +105,7 @@ export function TutorDashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <StatCard
           icon={<MessageSquare className="w-5 h-5" />}
           label="Total Sessions"
@@ -116,10 +113,17 @@ export function TutorDashboard() {
           color="primary"
         />
         <StatCard
+          icon={<AlertCircle className="w-5 h-5" />}
+          label="Pending"
+          value={stats.pending}
+          color="amber"
+          highlight={stats.pending > 0}
+        />
+        <StatCard
           icon={<Clock className="w-5 h-5" />}
           label="Active"
           value={stats.active}
-          color="amber"
+          color="blue"
         />
         <StatCard
           icon={<CheckCircle className="w-5 h-5" />}
@@ -129,10 +133,72 @@ export function TutorDashboard() {
         />
       </div>
 
+      {/* Pending Conversations - Students waiting for help */}
+      {pendingConversations.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-lg mb-6 animate-pulse-subtle">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-amber-200">
+            <div className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-amber-600" />
+              <h2 className="font-bold text-amber-900">Students Waiting for Help</h2>
+            </div>
+            <span className="text-sm font-medium text-amber-700 bg-amber-100 px-2 py-1 rounded">
+              {pendingConversations.length} waiting
+            </span>
+          </div>
+
+          <div className="divide-y divide-amber-200">
+            {pendingConversations.map((conversation) => (
+              <div key={conversation.id} className="p-4 hover:bg-amber-100/50 transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-gray-900">
+                        {conversation.student?.user?.name || 'Student'}
+                      </span>
+                      <SubjectBadge subject={conversation.subject} />
+                      <UrgencyBadge urgency={conversation.urgency} />
+                    </div>
+                    {conversation.topic && (
+                      <p className="text-sm text-gray-600 truncate mb-2">
+                        {conversation.topic}
+                      </p>
+                    )}
+                    {conversation.messages && conversation.messages.length > 0 && (
+                      <p className="text-sm text-gray-500 line-clamp-2">
+                        "{conversation.messages[0]?.content?.slice(0, 100)}
+                        {(conversation.messages[0]?.content?.length || 0) > 100 ? '...' : ''}"
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleRejectConversation(conversation.id)}
+                      leftIcon={<X className="w-4 h-4" />}
+                    >
+                      Skip
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleAcceptConversation(conversation.id)}
+                      isLoading={acceptingId === conversation.id}
+                      leftIcon={<UserPlus className="w-4 h-4" />}
+                    >
+                      Accept
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active Conversations */}
       <div className="bg-white border border-gray-200 rounded mb-6">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="font-bold text-gray-900">Active Sessions</h2>
+          <h2 className="font-bold text-gray-900">My Active Sessions</h2>
           <span className="text-sm text-gray-500">{activeConversations.length} active</span>
         </div>
 
@@ -149,7 +215,9 @@ export function TutorDashboard() {
             </div>
             <h3 className="font-semibold text-gray-900 mb-1">No active sessions</h3>
             <p className="text-sm text-gray-500">
-              You'll be notified when a new question is assigned to you.
+              {pendingConversations.length > 0 
+                ? 'Accept a pending question above to start helping!'
+                : 'You\'ll be notified when a new question arrives.'}
             </p>
           </div>
         ) : (
@@ -182,21 +250,26 @@ function StatCard({
   icon, 
   label, 
   value, 
-  color 
+  color,
+  highlight = false,
 }: { 
   icon: React.ReactNode; 
   label: string; 
   value: number; 
-  color: 'primary' | 'amber' | 'emerald';
+  color: 'primary' | 'amber' | 'emerald' | 'blue';
+  highlight?: boolean;
 }) {
   const colors = {
     primary: 'bg-primary-50 text-primary-600',
     amber: 'bg-amber-50 text-amber-600',
     emerald: 'bg-emerald-50 text-emerald-600',
+    blue: 'bg-blue-50 text-blue-600',
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded p-4">
+    <div className={`bg-white border rounded p-4 ${
+      highlight ? 'border-amber-400 ring-2 ring-amber-200 animate-pulse' : 'border-gray-200'
+    }`}>
       <div className="flex items-center gap-3">
         <div className={`p-2 rounded ${colors[color]}`}>
           {icon}

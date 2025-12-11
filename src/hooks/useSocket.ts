@@ -6,7 +6,16 @@ import {
   sendTypingIndicator,
   onSocketConnect,
 } from '../services/socket';
-import { Message, UserTypingEvent, NewAssignmentEvent, StatusChangeEvent } from '../types';
+import { 
+  Message, 
+  UserTypingEvent, 
+  NewAssignmentEvent, 
+  StatusChangeEvent, 
+  NewPendingConversationEvent,
+  ProcessingStatusEvent,
+  TutorAssignedEvent,
+  AllTutorsBusyEvent,
+} from '../types';
 
 interface UseConversationSocketOptions {
   conversationId: string;
@@ -22,6 +31,8 @@ export function useConversationSocket({
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const onMessageRef = useRef(onMessage);
   const onTypingRef = useRef(onTyping);
+  const messageHandlerRef = useRef<((message: Message) => void) | null>(null);
+  const typingHandlerRef = useRef<((data: UserTypingEvent) => void) | null>(null);
 
   // Keep refs up to date
   useEffect(() => {
@@ -34,6 +45,27 @@ export function useConversationSocket({
 
     let isSubscribed = true;
 
+    // Create handlers that we can reference for removal
+    const handleMessage = (message: Message) => {
+      if (!isSubscribed) return;
+      console.log('[useConversationSocket] Received newMessage:', message.id);
+      // Only process if it's for this conversation
+      if (message.conversationId === conversationId && onMessageRef.current) {
+        onMessageRef.current(message);
+      }
+    };
+
+    const handleTyping = (data: UserTypingEvent) => {
+      if (!isSubscribed) return;
+      if (onTypingRef.current) {
+        onTypingRef.current(data);
+      }
+    };
+
+    // Store references for cleanup
+    messageHandlerRef.current = handleMessage;
+    typingHandlerRef.current = handleTyping;
+
     const setupListeners = () => {
       const socket = getSocket();
       if (!socket || !isSubscribed) return;
@@ -43,25 +75,9 @@ export function useConversationSocket({
       // Join conversation room
       joinConversation(conversationId);
 
-      // Remove any existing listeners first
-      socket.off('newMessage');
-      socket.off('userTyping');
-
-      // Set up listeners using refs to avoid stale closures
-      socket.on('newMessage', (message: Message) => {
-        console.log('[useConversationSocket] Received newMessage:', message.id);
-        // Only process if it's for this conversation
-        if (message.conversationId === conversationId && onMessageRef.current) {
-          onMessageRef.current(message);
-        }
-      });
-
-      socket.on('userTyping', (data: UserTypingEvent) => {
-        console.log('[useConversationSocket] Received userTyping:', data);
-        if (onTypingRef.current) {
-          onTypingRef.current(data);
-        }
-      });
+      // Add listeners (don't remove all - just add ours)
+      socket.on('newMessage', handleMessage);
+      socket.on('userTyping', handleTyping);
     };
 
     // Set up listeners immediately if socket is connected
@@ -75,8 +91,13 @@ export function useConversationSocket({
       const socket = getSocket();
       if (socket) {
         leaveConversation(conversationId);
-        socket.off('newMessage');
-        socket.off('userTyping');
+        // Remove only OUR listeners by reference
+        if (messageHandlerRef.current) {
+          socket.off('newMessage', messageHandlerRef.current);
+        }
+        if (typingHandlerRef.current) {
+          socket.off('userTyping', typingHandlerRef.current);
+        }
       }
       unsubscribe();
       if (typingTimeoutRef.current) {
@@ -107,23 +128,62 @@ export function useConversationSocket({
 interface UseTutorNotificationsOptions {
   onAssignment?: (data: NewAssignmentEvent) => void;
   onStatusUpdate?: (data: StatusChangeEvent) => void;
+  onNewPendingConversation?: (data: NewPendingConversationEvent) => void;
 }
 
 export function useTutorNotifications({ 
   onAssignment, 
-  onStatusUpdate 
+  onStatusUpdate,
+  onNewPendingConversation,
 }: UseTutorNotificationsOptions) {
   const onAssignmentRef = useRef(onAssignment);
   const onStatusUpdateRef = useRef(onStatusUpdate);
+  const onNewPendingConversationRef = useRef(onNewPendingConversation);
+  const handlersRef = useRef<{
+    assignment: ((data: NewAssignmentEvent) => void) | null;
+    status: ((data: StatusChangeEvent) => void) | null;
+    pending: ((data: NewPendingConversationEvent) => void) | null;
+  }>({ assignment: null, status: null, pending: null });
 
   // Keep refs up to date
   useEffect(() => {
     onAssignmentRef.current = onAssignment;
     onStatusUpdateRef.current = onStatusUpdate;
-  }, [onAssignment, onStatusUpdate]);
+    onNewPendingConversationRef.current = onNewPendingConversation;
+  }, [onAssignment, onStatusUpdate, onNewPendingConversation]);
 
   useEffect(() => {
     let isSubscribed = true;
+
+    const handleAssignment = (data: NewAssignmentEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useTutorNotifications] Received newAssignment:', data);
+      if (onAssignmentRef.current) {
+        onAssignmentRef.current(data);
+      }
+    };
+
+    const handleStatus = (data: StatusChangeEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useTutorNotifications] Received statusChange:', data);
+      if (onStatusUpdateRef.current) {
+        onStatusUpdateRef.current(data);
+      }
+    };
+
+    const handlePending = (data: NewPendingConversationEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useTutorNotifications] Received newPendingConversation:', data);
+      if (onNewPendingConversationRef.current) {
+        onNewPendingConversationRef.current(data);
+      }
+    };
+
+    handlersRef.current = {
+      assignment: handleAssignment,
+      status: handleStatus,
+      pending: handlePending,
+    };
 
     const setupListeners = () => {
       const socket = getSocket();
@@ -131,38 +191,27 @@ export function useTutorNotifications({
 
       console.log('[useTutorNotifications] Setting up notification listeners');
 
-      // Remove any existing listeners first
-      socket.off('newAssignment');
-      socket.off('statusChange');
-
-      // Set up listeners using refs
-      socket.on('newAssignment', (data: NewAssignmentEvent) => {
-        console.log('[useTutorNotifications] Received newAssignment:', data);
-        if (onAssignmentRef.current) {
-          onAssignmentRef.current(data);
-        }
-      });
-
-      socket.on('statusChange', (data: StatusChangeEvent) => {
-        console.log('[useTutorNotifications] Received statusChange:', data);
-        if (onStatusUpdateRef.current) {
-          onStatusUpdateRef.current(data);
-        }
-      });
+      socket.on('newAssignment', handleAssignment);
+      socket.on('statusChange', handleStatus);
+      socket.on('newPendingConversation', handlePending);
     };
 
-    // Set up listeners immediately if socket is connected
     setupListeners();
-
-    // Also set up listeners when socket connects/reconnects
     const unsubscribe = onSocketConnect(setupListeners);
 
     return () => {
       isSubscribed = false;
       const socket = getSocket();
-      if (socket) {
-        socket.off('newAssignment');
-        socket.off('statusChange');
+      if (socket && handlersRef.current) {
+        if (handlersRef.current.assignment) {
+          socket.off('newAssignment', handlersRef.current.assignment);
+        }
+        if (handlersRef.current.status) {
+          socket.off('statusChange', handlersRef.current.status);
+        }
+        if (handlersRef.current.pending) {
+          socket.off('newPendingConversation', handlersRef.current.pending);
+        }
       }
       unsubscribe();
     };
@@ -181,6 +230,10 @@ export function useConversationListUpdates({
 }: UseConversationListUpdatesOptions) {
   const onNewMessageRef = useRef(onNewMessage);
   const onStatusChangeRef = useRef(onStatusChange);
+  const handlersRef = useRef<{
+    message: ((message: Message) => void) | null;
+    status: ((data: StatusChangeEvent) => void) | null;
+  }>({ message: null, status: null });
 
   useEffect(() => {
     onNewMessageRef.current = onNewMessage;
@@ -190,26 +243,32 @@ export function useConversationListUpdates({
   useEffect(() => {
     let isSubscribed = true;
 
+    const handleMessage = (message: Message) => {
+      if (!isSubscribed) return;
+      console.log('[useConversationListUpdates] Received newMessage');
+      if (onNewMessageRef.current) {
+        onNewMessageRef.current(message);
+      }
+    };
+
+    const handleStatus = (data: StatusChangeEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useConversationListUpdates] Received statusChange');
+      if (onStatusChangeRef.current) {
+        onStatusChangeRef.current(data);
+      }
+    };
+
+    handlersRef.current = { message: handleMessage, status: handleStatus };
+
     const setupListeners = () => {
       const socket = getSocket();
       if (!socket || !isSubscribed) return;
 
       console.log('[useConversationListUpdates] Setting up listeners');
 
-      // Listen for new messages (for updating unread counts, etc.)
-      socket.on('newMessage', (message: Message) => {
-        console.log('[useConversationListUpdates] Received newMessage');
-        if (onNewMessageRef.current) {
-          onNewMessageRef.current(message);
-        }
-      });
-
-      socket.on('statusChange', (data: StatusChangeEvent) => {
-        console.log('[useConversationListUpdates] Received statusChange');
-        if (onStatusChangeRef.current) {
-          onStatusChangeRef.current(data);
-        }
-      });
+      socket.on('newMessage', handleMessage);
+      socket.on('statusChange', handleStatus);
     };
 
     setupListeners();
@@ -217,11 +276,116 @@ export function useConversationListUpdates({
 
     return () => {
       isSubscribed = false;
+      const socket = getSocket();
+      if (socket && handlersRef.current) {
+        if (handlersRef.current.message) {
+          socket.off('newMessage', handlersRef.current.message);
+        }
+        if (handlersRef.current.status) {
+          socket.off('statusChange', handlersRef.current.status);
+        }
+      }
       unsubscribe();
-      // Note: Don't remove listeners here as they might be used by other hooks
     };
   }, []);
 }
 
-export default { useConversationSocket, useTutorNotifications, useConversationListUpdates };
+// Hook for student notifications (processing status, tutor assigned, etc.)
+interface UseStudentNotificationsOptions {
+  onProcessingStatus?: (data: ProcessingStatusEvent) => void;
+  onTutorAssigned?: (data: TutorAssignedEvent) => void;
+  onAllTutorsBusy?: (data: AllTutorsBusyEvent) => void;
+}
 
+export function useStudentNotifications({
+  onProcessingStatus,
+  onTutorAssigned,
+  onAllTutorsBusy,
+}: UseStudentNotificationsOptions) {
+  const onProcessingStatusRef = useRef(onProcessingStatus);
+  const onTutorAssignedRef = useRef(onTutorAssigned);
+  const onAllTutorsBusyRef = useRef(onAllTutorsBusy);
+  const handlersRef = useRef<{
+    processing: ((data: ProcessingStatusEvent) => void) | null;
+    assigned: ((data: TutorAssignedEvent) => void) | null;
+    busy: ((data: AllTutorsBusyEvent) => void) | null;
+  }>({ processing: null, assigned: null, busy: null });
+
+  useEffect(() => {
+    onProcessingStatusRef.current = onProcessingStatus;
+    onTutorAssignedRef.current = onTutorAssigned;
+    onAllTutorsBusyRef.current = onAllTutorsBusy;
+  }, [onProcessingStatus, onTutorAssigned, onAllTutorsBusy]);
+
+  useEffect(() => {
+    let isSubscribed = true;
+
+    const handleProcessing = (data: ProcessingStatusEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useStudentNotifications] Received processingStatus:', data);
+      if (onProcessingStatusRef.current) {
+        onProcessingStatusRef.current(data);
+      }
+    };
+
+    const handleAssigned = (data: TutorAssignedEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useStudentNotifications] Received tutorAssigned:', data);
+      if (onTutorAssignedRef.current) {
+        onTutorAssignedRef.current(data);
+      }
+    };
+
+    const handleBusy = (data: AllTutorsBusyEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useStudentNotifications] Received allTutorsBusy:', data);
+      if (onAllTutorsBusyRef.current) {
+        onAllTutorsBusyRef.current(data);
+      }
+    };
+
+    handlersRef.current = {
+      processing: handleProcessing,
+      assigned: handleAssigned,
+      busy: handleBusy,
+    };
+
+    const setupListeners = () => {
+      const socket = getSocket();
+      if (!socket || !isSubscribed) return;
+
+      console.log('[useStudentNotifications] Setting up student notification listeners');
+
+      socket.on('processingStatus', handleProcessing);
+      socket.on('tutorAssigned', handleAssigned);
+      socket.on('allTutorsBusy', handleBusy);
+    };
+
+    setupListeners();
+    const unsubscribe = onSocketConnect(setupListeners);
+
+    return () => {
+      isSubscribed = false;
+      const socket = getSocket();
+      if (socket && handlersRef.current) {
+        if (handlersRef.current.processing) {
+          socket.off('processingStatus', handlersRef.current.processing);
+        }
+        if (handlersRef.current.assigned) {
+          socket.off('tutorAssigned', handlersRef.current.assigned);
+        }
+        if (handlersRef.current.busy) {
+          socket.off('allTutorsBusy', handlersRef.current.busy);
+        }
+      }
+      unsubscribe();
+    };
+  }, []);
+}
+
+export default { 
+  useConversationSocket, 
+  useTutorNotifications, 
+  useConversationListUpdates,
+  useStudentNotifications,
+};

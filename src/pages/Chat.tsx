@@ -1,22 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, MoreVertical, CheckCircle, X } from 'lucide-react';
+import { ArrowLeft, MoreVertical, CheckCircle, X, Clock, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi } from '../api';
 import { useConversationSocket } from '../hooks/useSocket';
-import { Conversation, Message, MessageType, Role, ConversationStatus } from '../types';
+import { getSocket, onSocketConnect } from '../services/socket';
+import { Conversation, Message, MessageType, Role, ConversationStatus, CallStatus, StatusChangeEvent, SenderType, TutorAssignedEvent } from '../types';
 import { MessageBubble, MessageInput, TypingIndicator } from '../components/chat/index';
 import { SubjectBadge, StatusBadge } from '../components/ui/Badge';
 import { MessageSkeleton } from '../components/ui/Loading';
 import Avatar from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
 import Button from '../components/ui/Button';
+import { CallButton, ActiveCallUI, CallHistoryModal } from '../components/call';
+import { useCall } from '../contexts/CallContext';
 import toast from 'react-hot-toast';
 
 export function Chat() {
   const { id: conversationId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { callState } = useCall();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +30,12 @@ export function Chat() {
   const [isSending, setIsSending] = useState(false);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
+  const [showCallHistory, setShowCallHistory] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+
+  // Check if currently in a call for this conversation
+  const isInActiveCall = callState.conversationId === conversationId && 
+    callState.status !== CallStatus.IDLE;
 
   // Scroll to bottom
   const scrollToBottom = useCallback(() => {
@@ -63,16 +72,25 @@ export function Chat() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // Determine the current user's sender type based on their role
+  const mySenderType = user?.role === Role.STUDENT ? SenderType.STUDENT : SenderType.TUTOR;
+
   // Handle new message from socket
   const handleNewMessage = useCallback((message: Message) => {
     // Skip messages from ourselves (we already added them locally when sending)
-    if (message.senderId === user?.id) {
+    // Use senderType since senderId is profile ID, not user ID
+    if (message.senderType === mySenderType) {
+      console.log('[Chat] Skipping own message from socket:', message.id);
       return;
     }
     
     setMessages(prev => {
-      // Avoid duplicates
-      if (prev.some(m => m.id === message.id)) return prev;
+      // Avoid duplicates by message ID
+      if (prev.some(m => m.id === message.id)) {
+        console.log('[Chat] Skipping duplicate message:', message.id);
+        return prev;
+      }
+      console.log('[Chat] Adding new message from socket:', message.id);
       return [...prev, message];
     });
     setIsOtherTyping(false);
@@ -81,7 +99,7 @@ export function Chat() {
     if (conversationId) {
       messagesApi.markAsRead(conversationId);
     }
-  }, [user?.id, conversationId]);
+  }, [mySenderType, conversationId]);
 
   // Handle typing indicator
   const handleTyping = useCallback(({ isTyping }: { userId: string; isTyping: boolean }) => {
@@ -94,6 +112,56 @@ export function Chat() {
     onMessage: handleNewMessage,
     onTyping: handleTyping,
   });
+
+  // Listen for status changes (when other party closes/resolves)
+  useEffect(() => {
+    const handleStatusChange = (data: StatusChangeEvent) => {
+      if (data.conversationId === conversationId) {
+        console.log('[Chat] Status changed:', data.status);
+        setConversation(prev => prev ? { ...prev, status: data.status } : prev);
+        
+        const statusMessages: Record<string, string> = {
+          [ConversationStatus.RESOLVED]: 'This conversation has been marked as resolved',
+          [ConversationStatus.CLOSED]: 'This conversation has been closed',
+        };
+        
+        if (statusMessages[data.status]) {
+          toast(statusMessages[data.status], { icon: '✅' });
+        }
+      }
+    };
+
+    // Handle tutor assigned (for students waiting)
+    const handleTutorAssigned = (data: TutorAssignedEvent) => {
+      if (data.conversationId === conversationId) {
+        console.log('[Chat] Tutor assigned:', data.tutor.name);
+        // Refresh the conversation to get tutor info
+        messagesApi.getConversation(conversationId).then(response => {
+          setConversation(response.data);
+          toast.success(`${data.tutor.name} is now helping you!`);
+        }).catch(console.error);
+      }
+    };
+
+    const setupListener = () => {
+      const socket = getSocket();
+      if (!socket) return;
+      socket.on('statusChange', handleStatusChange);
+      socket.on('tutorAssigned', handleTutorAssigned);
+    };
+
+    setupListener();
+    const unsubscribe = onSocketConnect(setupListener);
+
+    return () => {
+      const socket = getSocket();
+      if (socket) {
+        socket.off('statusChange', handleStatusChange);
+        socket.off('tutorAssigned', handleTutorAssigned);
+      }
+      unsubscribe();
+    };
+  }, [conversationId]);
 
   // Send text message
   const handleSendText = async (content: string) => {
@@ -121,35 +189,25 @@ export function Chat() {
     }
   };
 
-  // Send audio message
-  const handleSendAudio = async (audioFile: File) => {
+  // Send attachments (images/PDFs)
+  const handleSendAttachments = async (files: File[], content?: string) => {
     if (!conversationId) return;
 
     try {
-      const response = await messagesApi.sendAudioMessage(
-        audioFile,
+      const response = await messagesApi.sendAttachments(
         conversationId,
+        files,
+        content,
         (progress) => {
-          // Could show upload progress here
           console.log(`Upload progress: ${progress}%`);
         }
       );
 
       // Add the message to the list
       setMessages(prev => [...prev, response.data.message as Message]);
-      
-      // Show transcription in toast if available
-      if (response.data.classification?.transcription) {
-        toast.success(`Audio transcribed: "${response.data.classification.transcription.slice(0, 50)}..."`);
-      }
-
-      // Update conversation status if needed
-      if (conversation?.status !== response.data.conversation.status) {
-        setConversation(prev => prev ? { ...prev, status: response.data.conversation.status } : prev);
-      }
     } catch (error) {
-      console.error('Failed to send audio:', error);
-      toast.error('Failed to send audio message');
+      console.error('Failed to send attachments:', error);
+      toast.error('Failed to send attachments');
       throw error;
     }
   };
@@ -174,11 +232,16 @@ export function Chat() {
 
   // Determine other party
   const isStudent = user?.role === Role.STUDENT;
-  const otherParty = isStudent 
-    ? conversation?.tutor?.user 
+  const otherParty = isStudent
+    ? conversation?.tutor?.user
     : conversation?.student?.user;
 
-  const canSendMessages = conversation?.status !== ConversationStatus.CLOSED 
+  // Check if waiting for tutor (student side, pending conversation, no tutor assigned)
+  const isWaitingForTutor = isStudent && 
+    conversation?.status === ConversationStatus.PENDING && 
+    !conversation?.tutor;
+
+  const canSendMessages = conversation?.status !== ConversationStatus.CLOSED
     && conversation?.status !== ConversationStatus.RESOLVED;
 
   if (isLoading) {
@@ -225,11 +288,17 @@ export function Chat() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           
-          <Avatar name={otherParty?.name || null} size="md" />
-          
+          {isWaitingForTutor ? (
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+              <Clock className="w-5 h-5 text-white animate-pulse" />
+            </div>
+          ) : (
+            <Avatar name={otherParty?.name || null} size="md" />
+          )}
+
           <div>
             <h2 className="font-semibold text-gray-900">
-              {otherParty?.name || 'Unknown'}
+              {isWaitingForTutor ? 'Finding a tutor...' : (otherParty?.name || 'Tutor')}
             </h2>
             <div className="flex items-center gap-2">
               <SubjectBadge subject={conversation.subject} />
@@ -238,12 +307,29 @@ export function Chat() {
           </div>
         </div>
 
-        <button
-          onClick={() => setShowOptionsModal(true)}
-          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
-        >
-          <MoreVertical className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Call button - only show if conversation is active and has a tutor assigned */}
+          {canSendMessages && conversation.tutorId && (
+            <CallButton 
+              conversationId={conversationId!}
+              disabled={!canSendMessages}
+            />
+          )}
+          
+          <button
+            onClick={() => setShowCallHistory(true)}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+            title="Call History"
+          >
+            <Clock className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setShowOptionsModal(true)}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Topic */}
@@ -255,10 +341,29 @@ export function Chat() {
         </div>
       )}
 
-      {/* Messages */}
-      <div 
+      {/* Waiting for Tutor Banner */}
+      {isWaitingForTutor && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3 border-b border-amber-200 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 bg-amber-100 rounded-full">
+              <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800">
+                Looking for the best tutor for you...
+              </p>
+              <p className="text-xs text-amber-600">
+                Our tutors are being notified. You'll be connected shortly.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Messages - Clean modern background */}
+      <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-1"
+        className="flex-1 overflow-y-auto p-4 space-y-1 bg-gray-50"
       >
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-500 text-sm">
@@ -270,7 +375,7 @@ export function Chat() {
               <MessageBubble
                 key={message.id}
                 message={message}
-                isOwn={message.senderId === user?.id}
+                isOwn={message.senderType === mySenderType}
               />
             ))}
             {isOtherTyping && (
@@ -285,11 +390,10 @@ export function Chat() {
       {canSendMessages ? (
         <MessageInput
           onSendText={handleSendText}
-          onSendAudio={handleSendAudio}
+          onSendAttachments={handleSendAttachments}
           onTyping={sendTyping}
           disabled={isSending}
           placeholder={`Message ${otherParty?.name?.split(' ')[0] || 'tutor'}...`}
-          showAudioButton={true}
         />
       ) : (
         <div className="p-4 bg-gray-100 border-t border-gray-200 text-center text-sm text-gray-500">
@@ -348,6 +452,21 @@ export function Chat() {
           )}
         </div>
       </Modal>
+
+      {/* Active Call UI */}
+      {isInActiveCall && conversationId && (
+        <ActiveCallUI
+          conversationId={conversationId}
+          otherPartyName={otherParty?.name || undefined}
+        />
+      )}
+
+      {/* Call History Modal */}
+      <CallHistoryModal
+        isOpen={showCallHistory}
+        onClose={() => setShowCallHistory(false)}
+        conversationId={conversationId}
+      />
     </div>
   );
 }

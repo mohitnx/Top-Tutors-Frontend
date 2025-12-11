@@ -1,7 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './contexts/AuthContext';
+import { CallProvider } from './contexts/CallContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { Layout, AuthLayout, PublicLayout, ProtectedRoute } from './components/layout';
+import { IncomingCallModal } from './components/call';
 import { Role } from './types';
 
 // Pages
@@ -27,35 +30,40 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        {/* Toast Notifications */}
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#fff',
-              color: '#333',
-              border: '1px solid #e5e7eb',
-              borderRadius: '4px',
-              fontSize: '14px',
-              fontFamily: 'Lato, sans-serif',
-            },
-            success: {
-              iconTheme: {
-                primary: '#14bf96',
-                secondary: '#fff',
+        <CallProvider>
+          <NotificationProvider>
+          {/* Toast Notifications */}
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#fff',
+                color: '#333',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                fontSize: '14px',
+                fontFamily: 'Lato, sans-serif',
               },
-            },
-            error: {
-              iconTheme: {
-                primary: '#ef4444',
-                secondary: '#fff',
+              success: {
+                iconTheme: {
+                  primary: '#14bf96',
+                  secondary: '#fff',
+                },
               },
-            },
-          }}
-        />
+              error: {
+                iconTheme: {
+                  primary: '#ef4444',
+                  secondary: '#fff',
+                },
+              },
+            }}
+          />
 
-        <Routes>
+          {/* Global Incoming Call Modal */}
+          <IncomingCallModal />
+
+          <Routes>
           {/* Public Routes */}
           <Route element={<PublicLayout />}>
             <Route path="/" element={<Landing />} />
@@ -135,7 +143,9 @@ function App() {
           <Route element={<AuthLayout />}>
             <Route path="*" element={<NotFound />} />
           </Route>
-        </Routes>
+          </Routes>
+          </NotificationProvider>
+        </CallProvider>
       </AuthProvider>
     </BrowserRouter>
   );
