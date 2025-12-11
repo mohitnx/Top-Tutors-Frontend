@@ -105,6 +105,38 @@ export const messagesApi = {
     return response.data;
   },
 
+  // Get pending conversations for tutor's dashboard (matching their topics)
+  getPendingForMe: async (): Promise<ApiResponse<{
+    conversations: Array<Conversation & { canAccept: boolean }>;
+    tutorStatus: {
+      isBusy: boolean;
+      hasActiveSession: boolean;
+      canAcceptNew: boolean;
+    };
+  }>> => {
+    const response = await api.get<ApiResponse<{
+      conversations: Array<Conversation & { canAccept: boolean }>;
+      tutorStatus: {
+        isBusy: boolean;
+        hasActiveSession: boolean;
+        canAcceptNew: boolean;
+      };
+    }>>('/messages/conversations/pending/for-me');
+    return response.data;
+  },
+
+  // Check if tutor can accept a specific conversation
+  canAcceptConversation: async (conversationId: string): Promise<ApiResponse<{
+    canAccept: boolean;
+    reason?: string;
+  }>> => {
+    const response = await api.get<ApiResponse<{
+      canAccept: boolean;
+      reason?: string;
+    }>>(`/messages/conversations/${conversationId}/can-accept`);
+    return response.data;
+  },
+
   // Get conversation by ID with messages
   getConversation: async (id: string): Promise<ApiResponse<Conversation>> => {
     const response = await api.get<ApiResponse<Conversation>>(`/messages/conversations/${id}`);
