@@ -1,18 +1,31 @@
-import { createContext, useContext, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useCallback, useRef, useState, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, X, Check } from 'lucide-react';
+import { Phone, X, Check, Clock, AlertTriangle, Bell } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { getSocket, onSocketConnect } from '../services/socket';
-import { Role, NewPendingConversationEvent, NewAssignmentEvent } from '../types';
+import { getSocket, onSocketConnect, respondAvailability } from '../services/socket';
+import { 
+  Role, 
+  NewPendingConversationEvent, 
+  NewAssignmentEvent,
+  WaitingStudentNotification,
+  AvailabilityReminder,
+  SessionTakenEvent,
+  ConversationTakenEvent,
+} from '../types';
 import { messagesApi } from '../api';
+import { WaitingStudentModal } from '../components/queue';
 import toast from 'react-hot-toast';
 
 interface NotificationContextType {
   requestNotificationPermission: () => Promise<boolean>;
+  waitingStudentNotification: WaitingStudentNotification | null;
+  clearWaitingStudentNotification: () => void;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
   requestNotificationPermission: async () => false,
+  waitingStudentNotification: null,
+  clearWaitingStudentNotification: () => {},
 });
 
 // Request browser notification permission
@@ -62,6 +75,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const shownNotificationsRef = useRef<Set<string>>(new Set());
+  
+  // Waiting queue state
+  const [waitingStudentNotification, setWaitingStudentNotification] = useState<WaitingStudentNotification | null>(null);
+  
+  const clearWaitingStudentNotification = useCallback(() => {
+    setWaitingStudentNotification(null);
+  }, []);
 
   // Request permission on mount for tutors
   useEffect(() => {
@@ -320,6 +340,126 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     ), { duration: 15000, position: 'top-right' });
   }, [navigate]);
 
+  // Handle waiting student notification (for busy tutors)
+  const handleWaitingStudentNotification = useCallback((data: WaitingStudentNotification) => {
+    console.log('[GlobalNotification] Received waitingStudentNotification:', data);
+
+    // Prevent duplicates
+    const notificationKey = `waiting-${data.conversation.id}`;
+    if (shownNotificationsRef.current.has(notificationKey)) {
+      return;
+    }
+    shownNotificationsRef.current.add(notificationKey);
+    setTimeout(() => shownNotificationsRef.current.delete(notificationKey), 120000);
+
+    // Set the notification to show modal
+    if (data.requiresAvailabilityResponse) {
+      setWaitingStudentNotification(data);
+    }
+
+    // Browser notification
+    showBrowserNotification(
+      '⏳ Student Waiting',
+      `${data.conversation.student.name} has been waiting ${data.waitingQueue.waitingMinutes} minutes for help with ${data.conversation.subject.replace('_', ' ')}`,
+    );
+
+    // Play notification sound
+    try {
+      const audio = new Audio('/sounds/notification.mp3');
+      audio.volume = 0.3;
+      audio.play().catch(() => {});
+    } catch {}
+  }, []);
+
+  // Handle availability reminder (tutor's stated time has arrived)
+  const handleAvailabilityReminder = useCallback((data: AvailabilityReminder) => {
+    console.log('[GlobalNotification] Received availabilityReminder:', data);
+
+    // Browser notification
+    showBrowserNotification(
+      '⏰ Time to Help!',
+      data.message,
+      data.canAcceptNow ? () => handleAcceptConversation(data.conversationId) : undefined
+    );
+
+    // Show urgent in-app toast
+    toast.custom((t) => (
+      <div
+        className={`${
+          t.visible ? 'animate-enter' : 'animate-leave'
+        } max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto overflow-hidden`}
+        style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
+      >
+        <div className="h-1 bg-gradient-to-r from-amber-400 to-red-500" />
+        
+        <div className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-red-500 flex items-center justify-center text-white flex-shrink-0">
+              <Bell className="w-5 h-5" />
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900">
+                Time to Help!
+              </p>
+              <p className="text-sm text-gray-600 mt-0.5">
+                {data.message}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {data.conversation.student.name} • {data.conversation.subject.replace('_', ' ')}
+              </p>
+            </div>
+          </div>
+
+          {data.canAcceptNow && (
+            <button
+              onClick={() => {
+                toast.dismiss(t.id);
+                handleAcceptConversation(data.conversationId);
+              }}
+              className="w-full mt-3 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-md transition-colors"
+            >
+              Accept Now
+            </button>
+          )}
+        </div>
+      </div>
+    ), { duration: 30000, position: 'top-right' });
+
+    // Play urgent notification sound
+    try {
+      const audio = new Audio('/sounds/notification.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(() => {});
+    } catch {}
+  }, [handleAcceptConversation]);
+
+  // Handle session taken (another tutor took the session)
+  const handleSessionTaken = useCallback((data: SessionTakenEvent) => {
+    console.log('[GlobalNotification] Received sessionTaken:', data);
+
+    // Clear the waiting student notification if it's for this conversation
+    setWaitingStudentNotification(prev => 
+      prev?.conversation.id === data.conversationId ? null : prev
+    );
+
+    // Show brief toast
+    toast(data.message || 'Session taken by another tutor', {
+      icon: '👋',
+      duration: 3000,
+    });
+  }, []);
+
+  // Handle conversation taken (broadcast to all tutors)
+  const handleConversationTaken = useCallback((data: ConversationTakenEvent) => {
+    console.log('[GlobalNotification] Received conversationTaken:', data);
+
+    // Clear the waiting student notification if it's for this conversation
+    setWaitingStudentNotification(prev => 
+      prev?.conversation.id === data.conversationId ? null : prev
+    );
+  }, []);
+
   // Set up global socket listeners for tutors
   useEffect(() => {
     // Only for authenticated tutors
@@ -338,6 +478,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Remove existing listeners first to prevent duplicates
       socket.off('newPendingConversation');
       socket.off('newAssignment');
+      socket.off('waitingStudentNotification');
+      socket.off('availabilityReminder');
+      socket.off('sessionTaken');
+      socket.off('conversationTaken');
 
       // Listen for new pending conversations
       socket.on('newPendingConversation', (data: NewPendingConversationEvent) => {
@@ -348,6 +492,26 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Listen for admin assignments
       socket.on('newAssignment', (data: NewAssignmentEvent) => {
         handleNewAssignment(data);
+      });
+
+      // Listen for waiting student notifications (busy tutors)
+      socket.on('waitingStudentNotification', (data: WaitingStudentNotification) => {
+        handleWaitingStudentNotification(data);
+      });
+
+      // Listen for availability reminders
+      socket.on('availabilityReminder', (data: AvailabilityReminder) => {
+        handleAvailabilityReminder(data);
+      });
+
+      // Listen for session taken
+      socket.on('sessionTaken', (data: SessionTakenEvent) => {
+        handleSessionTaken(data);
+      });
+
+      // Listen for conversation taken
+      socket.on('conversationTaken', (data: ConversationTakenEvent) => {
+        handleConversationTaken(data);
       });
     };
 
@@ -363,18 +527,35 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       if (socket) {
         socket.off('newPendingConversation');
         socket.off('newAssignment');
+        socket.off('waitingStudentNotification');
+        socket.off('availabilityReminder');
+        socket.off('sessionTaken');
+        socket.off('conversationTaken');
       }
       unsubscribe();
     };
-  }, [isAuthenticated, user?.role, handleNewPendingConversation, handleNewAssignment]);
+  }, [isAuthenticated, user?.role, handleNewPendingConversation, handleNewAssignment, handleWaitingStudentNotification, handleAvailabilityReminder, handleSessionTaken, handleConversationTaken]);
 
   const requestNotificationPermission = useCallback(async () => {
     return requestBrowserNotificationPermission();
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ requestNotificationPermission }}>
+    <NotificationContext.Provider value={{ 
+      requestNotificationPermission,
+      waitingStudentNotification,
+      clearWaitingStudentNotification,
+    }}>
       {children}
+      
+      {/* Waiting Student Modal for busy tutors */}
+      {waitingStudentNotification && (
+        <WaitingStudentModal
+          notification={waitingStudentNotification}
+          onClose={clearWaitingStudentNotification}
+          onAccept={handleAcceptConversation}
+        />
+      )}
     </NotificationContext.Provider>
   );
 }

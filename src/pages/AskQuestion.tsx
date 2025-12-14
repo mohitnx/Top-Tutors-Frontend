@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Lightbulb, ArrowLeft, Mic, Paperclip, X, Loader2, Play, Pause, Trash2, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Send, Lightbulb, ArrowLeft, Mic, Paperclip, X, Loader2, Play, Pause, Trash2, CheckCircle, Clock, AlertCircle, Users } from 'lucide-react';
 import { messagesApi } from '../api';
-import { MessageType, ProcessingStatusEvent, TutorAssignedEvent, AllTutorsBusyEvent } from '../types';
+import { MessageType, ProcessingStatusEvent, TutorAssignedEvent, AllTutorsBusyEvent, TutorAvailabilityUpdate, TutorAcceptedEvent } from '../types';
 import Button from '../components/ui/Button';
 import { Textarea } from '../components/ui/Input';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -37,6 +37,14 @@ export function AskQuestion() {
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatusEvent | null>(null);
   const [showProcessingModal, setShowProcessingModal] = useState(false);
   const pendingConversationRef = useRef<string | null>(null);
+  
+  // Waiting queue state
+  const [waitingQueueInfo, setWaitingQueueInfo] = useState<{
+    shortestWaitMinutes?: number;
+    message?: string;
+    tutorResponses?: Array<{ tutorName: string; minutesUntilFree: number }>;
+  } | null>(null);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
 
   const {
     isRecording,
@@ -82,12 +90,66 @@ export function AskQuestion() {
     toast.error(data.message);
   }, []);
 
+  // Handle tutor availability update (waiting queue)
+  const handleTutorAvailabilityUpdate = useCallback((data: TutorAvailabilityUpdate) => {
+    console.log('[AskQuestion] Tutor availability update:', data);
+    setWaitingQueueInfo({
+      shortestWaitMinutes: data.shortestWaitMinutes,
+      message: data.message,
+      tutorResponses: data.tutorResponses,
+    });
+    
+    // Start countdown timer
+    if (data.shortestWaitMinutes) {
+      setCountdownSeconds(data.shortestWaitMinutes * 60);
+    }
+    
+    // Update processing status
+    setProcessingStatus({
+      status: 'WAITING_FOR_TUTOR',
+      message: data.message || `A tutor will be available in ~${data.shortestWaitMinutes} minutes`,
+      progress: 85,
+    });
+    
+    toast.success(data.message, { duration: 5000 });
+  }, []);
+
+  // Handle tutor accepted (from waiting queue)
+  const handleTutorAccepted = useCallback((data: TutorAcceptedEvent) => {
+    console.log('[AskQuestion] Tutor accepted:', data);
+    setShowProcessingModal(false);
+    setIsSubmitting(false);
+    setWaitingQueueInfo(null);
+    setCountdownSeconds(null);
+    toast.success(`${data.tutorName} is ready to help you!`);
+    navigate(`/conversations/${data.conversationId}`);
+  }, [navigate]);
+
   // Subscribe to student notifications
   useStudentNotifications({
     onProcessingStatus: handleProcessingStatus,
     onTutorAssigned: handleTutorAssigned,
     onAllTutorsBusy: handleAllTutorsBusy,
+    onTutorAvailabilityUpdate: handleTutorAvailabilityUpdate,
+    onTutorAccepted: handleTutorAccepted,
   });
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (countdownSeconds === null || countdownSeconds <= 0) return;
+    
+    const interval = setInterval(() => {
+      setCountdownSeconds(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [countdownSeconds]);
 
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -581,9 +643,44 @@ export function AskQuestion() {
 
             {/* Status specific content */}
             {processingStatus.status === 'WAITING_FOR_TUTOR' && (
-              <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                <Clock className="w-4 h-4" />
-                <span>This usually takes a few seconds...</span>
+              <div className="space-y-3">
+                {waitingQueueInfo?.shortestWaitMinutes && countdownSeconds !== null && countdownSeconds > 0 ? (
+                  <>
+                    {/* Countdown Timer */}
+                    <div className="flex items-center justify-center gap-3 py-3 bg-gray-50 rounded-lg">
+                      <Clock className="w-5 h-5 text-primary-500" />
+                      <div className="text-center">
+                        <div className="text-2xl font-mono font-bold text-primary-600">
+                          {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
+                        </div>
+                        <div className="text-xs text-gray-500">Estimated wait time</div>
+                      </div>
+                    </div>
+                    
+                    {/* Tutor Responses */}
+                    {waitingQueueInfo.tutorResponses && waitingQueueInfo.tutorResponses.length > 0 && (
+                      <div className="text-left bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Tutors responding:</span>
+                        </div>
+                        <div className="space-y-1">
+                          {waitingQueueInfo.tutorResponses.slice(0, 3).map((tutor, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm">
+                              <span className="text-gray-700">{tutor.tutorName}</span>
+                              <span className="text-gray-500">~{tutor.minutesUntilFree} min</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                    <Clock className="w-4 h-4" />
+                    <span>Finding available tutors...</span>
+                  </div>
+                )}
               </div>
             )}
 

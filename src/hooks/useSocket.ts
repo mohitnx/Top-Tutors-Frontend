@@ -15,6 +15,8 @@ import {
   ProcessingStatusEvent,
   TutorAssignedEvent,
   AllTutorsBusyEvent,
+  TutorAvailabilityUpdate,
+  TutorAcceptedEvent,
 } from '../types';
 
 interface UseConversationSocketOptions {
@@ -295,27 +297,37 @@ interface UseStudentNotificationsOptions {
   onProcessingStatus?: (data: ProcessingStatusEvent) => void;
   onTutorAssigned?: (data: TutorAssignedEvent) => void;
   onAllTutorsBusy?: (data: AllTutorsBusyEvent) => void;
+  onTutorAvailabilityUpdate?: (data: TutorAvailabilityUpdate) => void;
+  onTutorAccepted?: (data: TutorAcceptedEvent) => void;
 }
 
 export function useStudentNotifications({
   onProcessingStatus,
   onTutorAssigned,
   onAllTutorsBusy,
+  onTutorAvailabilityUpdate,
+  onTutorAccepted,
 }: UseStudentNotificationsOptions) {
   const onProcessingStatusRef = useRef(onProcessingStatus);
   const onTutorAssignedRef = useRef(onTutorAssigned);
   const onAllTutorsBusyRef = useRef(onAllTutorsBusy);
+  const onTutorAvailabilityUpdateRef = useRef(onTutorAvailabilityUpdate);
+  const onTutorAcceptedRef = useRef(onTutorAccepted);
   const handlersRef = useRef<{
     processing: ((data: ProcessingStatusEvent) => void) | null;
     assigned: ((data: TutorAssignedEvent) => void) | null;
     busy: ((data: AllTutorsBusyEvent) => void) | null;
-  }>({ processing: null, assigned: null, busy: null });
+    availability: ((data: TutorAvailabilityUpdate) => void) | null;
+    accepted: ((data: TutorAcceptedEvent) => void) | null;
+  }>({ processing: null, assigned: null, busy: null, availability: null, accepted: null });
 
   useEffect(() => {
     onProcessingStatusRef.current = onProcessingStatus;
     onTutorAssignedRef.current = onTutorAssigned;
     onAllTutorsBusyRef.current = onAllTutorsBusy;
-  }, [onProcessingStatus, onTutorAssigned, onAllTutorsBusy]);
+    onTutorAvailabilityUpdateRef.current = onTutorAvailabilityUpdate;
+    onTutorAcceptedRef.current = onTutorAccepted;
+  }, [onProcessingStatus, onTutorAssigned, onAllTutorsBusy, onTutorAvailabilityUpdate, onTutorAccepted]);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -344,10 +356,28 @@ export function useStudentNotifications({
       }
     };
 
+    const handleAvailability = (data: TutorAvailabilityUpdate) => {
+      if (!isSubscribed) return;
+      console.log('[useStudentNotifications] Received tutorAvailabilityUpdate:', data);
+      if (onTutorAvailabilityUpdateRef.current) {
+        onTutorAvailabilityUpdateRef.current(data);
+      }
+    };
+
+    const handleAccepted = (data: TutorAcceptedEvent) => {
+      if (!isSubscribed) return;
+      console.log('[useStudentNotifications] Received tutorAccepted:', data);
+      if (onTutorAcceptedRef.current) {
+        onTutorAcceptedRef.current(data);
+      }
+    };
+
     handlersRef.current = {
       processing: handleProcessing,
       assigned: handleAssigned,
       busy: handleBusy,
+      availability: handleAvailability,
+      accepted: handleAccepted,
     };
 
     const setupListeners = () => {
@@ -359,6 +389,8 @@ export function useStudentNotifications({
       socket.on('processingStatus', handleProcessing);
       socket.on('tutorAssigned', handleAssigned);
       socket.on('allTutorsBusy', handleBusy);
+      socket.on('tutorAvailabilityUpdate', handleAvailability);
+      socket.on('tutorAccepted', handleAccepted);
     };
 
     setupListeners();
@@ -376,6 +408,12 @@ export function useStudentNotifications({
         }
         if (handlersRef.current.busy) {
           socket.off('allTutorsBusy', handlersRef.current.busy);
+        }
+        if (handlersRef.current.availability) {
+          socket.off('tutorAvailabilityUpdate', handlersRef.current.availability);
+        }
+        if (handlersRef.current.accepted) {
+          socket.off('tutorAccepted', handlersRef.current.accepted);
         }
       }
       unsubscribe();

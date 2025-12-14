@@ -1,0 +1,2 @@
+export { WaitingStudentModal } from './WaitingStudentModal';
+

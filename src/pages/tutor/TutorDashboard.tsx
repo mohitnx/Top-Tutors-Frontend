@@ -6,8 +6,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesApi } from '../../api';
-import { Conversation, ConversationStatus } from '../../types';
-import { rejectConversation as socketRejectConversation } from '../../services/socket';
+import { Conversation, ConversationStatus, SessionTakenEvent, ConversationTakenEvent } from '../../types';
+import { 
+  rejectConversation as socketRejectConversation,
+  getSocket,
+  onSocketConnect,
+} from '../../services/socket';
 import { SubjectBadge, UrgencyBadge, StatusBadge } from '../../components/ui/Badge';
 import Avatar from '../../components/ui/Avatar';
 import toast from 'react-hot-toast';
@@ -171,6 +175,50 @@ export function TutorDashboard() {
     
     return () => clearInterval(interval);
   }, [fetchConversations, fetchPendingForMe]);
+
+  // Handle session taken (another tutor took the session)
+  const handleSessionTaken = useCallback((data: SessionTakenEvent) => {
+    console.log('[TutorDashboard] Session taken:', data);
+    setPendingConversations(prev => prev.filter(c => c.id !== data.conversationId));
+    toast(data.message || 'Session taken by another tutor', {
+      icon: '👋',
+      duration: 3000,
+    });
+  }, []);
+
+  // Handle conversation taken (broadcast to all tutors)
+  const handleConversationTaken = useCallback((data: ConversationTakenEvent) => {
+    console.log('[TutorDashboard] Conversation taken:', data);
+    setPendingConversations(prev => prev.filter(c => c.id !== data.conversationId));
+  }, []);
+
+  // Listen for sessionTaken and conversationTaken events
+  useEffect(() => {
+    let isSubscribed = true;
+
+    const setupListeners = () => {
+      const socket = getSocket();
+      if (!socket || !isSubscribed) return;
+
+      console.log('[TutorDashboard] Setting up session taken listeners');
+
+      socket.on('sessionTaken', handleSessionTaken);
+      socket.on('conversationTaken', handleConversationTaken);
+    };
+
+    setupListeners();
+    const unsubscribe = onSocketConnect(setupListeners);
+
+    return () => {
+      isSubscribed = false;
+      const socket = getSocket();
+      if (socket) {
+        socket.off('sessionTaken', handleSessionTaken);
+        socket.off('conversationTaken', handleConversationTaken);
+      }
+      unsubscribe();
+    };
+  }, [handleSessionTaken, handleConversationTaken]);
 
   const activeConversations = conversations.filter(
     c => c.status === ConversationStatus.ACTIVE || c.status === ConversationStatus.ASSIGNED

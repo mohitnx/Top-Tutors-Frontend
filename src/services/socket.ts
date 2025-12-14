@@ -21,7 +21,18 @@ import {
   InviteToCallEvent,
   ParticipantJoinedEvent,
   ParticipantLeftEvent,
-  ParticipantMutedEvent
+  ParticipantMutedEvent,
+  // Waiting Queue Types
+  WaitingStudentNotification,
+  RespondAvailabilityRequest,
+  RespondAvailabilityResponse,
+  AvailabilityReminder,
+  SessionTakenEvent,
+  ConversationTakenEvent,
+  TutorAvailabilityUpdate,
+  TutorAcceptedEvent,
+  GetWaitingQueueStatusRequest,
+  WaitingQueueStatusResponse,
 } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
@@ -370,6 +381,96 @@ export const offParticipantMuted = (): void => {
   socket?.off('participantMuted');
 };
 
+// ============================================
+// Waiting Queue System Functions (Tutor Side)
+// ============================================
+
+// Listen for waiting student notifications (busy tutors)
+export const onWaitingStudentNotification = (callback: (data: WaitingStudentNotification) => void): void => {
+  socket?.on('waitingStudentNotification', callback);
+};
+
+export const offWaitingStudentNotification = (): void => {
+  socket?.off('waitingStudentNotification');
+};
+
+// Respond with availability time
+export const respondAvailability = (
+  data: RespondAvailabilityRequest,
+  callback?: (response: RespondAvailabilityResponse) => void
+): void => {
+  if (socket?.connected) {
+    console.log('[Socket] Responding with availability:', data);
+    socket.emit('respondAvailability', data, callback);
+  } else {
+    console.error('[Socket] Cannot respond - socket not connected');
+    callback?.({ success: false, error: 'Socket not connected' });
+  }
+};
+
+// Listen for availability reminder (when tutor's stated time arrives)
+export const onAvailabilityReminder = (callback: (data: AvailabilityReminder) => void): void => {
+  socket?.on('availabilityReminder', callback);
+};
+
+export const offAvailabilityReminder = (): void => {
+  socket?.off('availabilityReminder');
+};
+
+// Listen for session taken (when another tutor takes the session)
+export const onSessionTaken = (callback: (data: SessionTakenEvent) => void): void => {
+  socket?.on('sessionTaken', callback);
+};
+
+export const offSessionTaken = (): void => {
+  socket?.off('sessionTaken');
+};
+
+// Listen for conversation taken (broadcast to all tutors)
+export const onConversationTaken = (callback: (data: ConversationTakenEvent) => void): void => {
+  socket?.on('conversationTaken', callback);
+};
+
+export const offConversationTaken = (): void => {
+  socket?.off('conversationTaken');
+};
+
+// ============================================
+// Waiting Queue System Functions (Student Side)
+// ============================================
+
+// Listen for tutor availability updates
+export const onTutorAvailabilityUpdate = (callback: (data: TutorAvailabilityUpdate) => void): void => {
+  socket?.on('tutorAvailabilityUpdate', callback);
+};
+
+export const offTutorAvailabilityUpdate = (): void => {
+  socket?.off('tutorAvailabilityUpdate');
+};
+
+// Listen for tutor accepted event
+export const onTutorAccepted = (callback: (data: TutorAcceptedEvent) => void): void => {
+  socket?.on('tutorAccepted', callback);
+};
+
+export const offTutorAccepted = (): void => {
+  socket?.off('tutorAccepted');
+};
+
+// Get waiting queue status
+export const getWaitingQueueStatus = (
+  data: GetWaitingQueueStatusRequest,
+  callback?: (response: WaitingQueueStatusResponse) => void
+): void => {
+  if (socket?.connected) {
+    console.log('[Socket] Getting waiting queue status:', data);
+    socket.emit('getWaitingQueueStatus', data, callback);
+  } else {
+    console.error('[Socket] Cannot get status - socket not connected');
+    callback?.({ inQueue: false, error: 'Socket not connected' });
+  }
+};
+
 export default {
   connectSocket,
   disconnectSocket,
@@ -429,5 +530,21 @@ export default {
   offParticipantLeft,
   onParticipantMuted,
   offParticipantMuted,
+  // Waiting Queue - Tutor Side
+  onWaitingStudentNotification,
+  offWaitingStudentNotification,
+  respondAvailability,
+  onAvailabilityReminder,
+  offAvailabilityReminder,
+  onSessionTaken,
+  offSessionTaken,
+  onConversationTaken,
+  offConversationTaken,
+  // Waiting Queue - Student Side
+  onTutorAvailabilityUpdate,
+  offTutorAvailabilityUpdate,
+  onTutorAccepted,
+  offTutorAccepted,
+  getWaitingQueueStatus,
 };
 

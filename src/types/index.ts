@@ -531,5 +531,119 @@ export interface ParticipantMutedEvent {
   isMuted: boolean;
 }
 
+// ============================================
+// Waiting Queue System Types
+// ============================================
+
+// Waiting student notification - sent to busy tutors when student waits 2+ minutes
+export interface WaitingStudentNotification {
+  type: 'WAITING_STUDENT';
+  conversation: {
+    id: string;
+    subject: string;
+    topic: string;
+    urgency: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+    status: 'PENDING';
+    createdAt: string;
+    student: {
+      id: string;
+      name: string;
+      avatar?: string;
+    };
+    lastMessage?: string;
+  };
+  waitingQueue: {
+    id: string;
+    waitingSince: string;
+    waitingMinutes: number;
+  };
+  requiresAvailabilityResponse: boolean;
+}
+
+// Tutor availability response types
+export type AvailabilityResponseType = 'MINUTES_5' | 'MINUTES_10' | 'NOT_ANYTIME_SOON' | 'CUSTOM';
+
+export interface RespondAvailabilityRequest {
+  conversationId: string;
+  responseType: AvailabilityResponseType;
+  customMinutes?: number;
+}
+
+export interface RespondAvailabilityResponse {
+  success: boolean;
+  freeAt?: string;
+  minutesUntilFree?: number;
+  message?: string;
+  error?: string;
+}
+
+// Availability reminder - when tutor's stated time arrives
+export interface AvailabilityReminder {
+  type: 'AVAILABILITY_REMINDER';
+  conversationId: string;
+  waitingQueueId: string;
+  message: string;
+  conversation: {
+    id: string;
+    subject: string;
+    topic: string;
+    student: {
+      id: string;
+      name: string;
+      avatar?: string;
+    };
+  };
+  canAcceptNow: boolean;
+}
+
+// Session taken - when another tutor takes the session
+export interface SessionTakenEvent {
+  conversationId: string;
+  message: string;
+}
+
+// Conversation taken - broadcast to all tutors of that subject
+export interface ConversationTakenEvent {
+  conversationId: string;
+}
+
+// Tutor availability update - sent to waiting student
+export interface TutorAvailabilityUpdate {
+  shortestWaitMinutes: number;
+  message: string;
+  tutorResponses: Array<{
+    tutorName: string;
+    minutesUntilFree: number;
+  }>;
+}
+
+// Tutor accepted - when a tutor accepts the conversation
+export interface TutorAcceptedEvent {
+  conversationId: string;
+  tutorId: string;
+  tutorName: string;
+}
+
+// Waiting queue status request
+export interface GetWaitingQueueStatusRequest {
+  conversationId: string;
+}
+
+// Waiting queue status response
+export interface WaitingQueueStatusResponse {
+  inQueue: boolean;
+  status?: 'WAITING' | 'TUTORS_NOTIFIED' | 'AVAILABILITY_COLLECTED' | 'MATCHED';
+  waitStartedAt?: string;
+  shortestWaitMinutes?: number;
+  tutorResponses?: Array<{
+    tutorId: string;
+    tutorName: string;
+    responseType: string;
+    freeAt: string;
+    minutesUntilFree: number;
+  }>;
+  error?: string;
+}
+
 
 
