@@ -18,12 +18,12 @@ import {
   AdminDashboard,
   AdminUsers,
   AdminConversations,
-  AskQuestion,
   Conversations,
   Chat,
   Profile,
   NotFound,
   Unauthorized,
+  SharedConversation,
 } from './pages';
 
 function App() {
@@ -32,22 +32,22 @@ function App() {
       <AuthProvider>
         <CallProvider>
           <NotificationProvider>
-          {/* Toast Notifications */}
+          {/* Toast Notifications - Dark theme */}
           <Toaster
             position="top-right"
             toastOptions={{
               duration: 4000,
               style: {
-                background: '#fff',
-                color: '#333',
-                border: '1px solid #e5e7eb',
-                borderRadius: '4px',
+                background: '#2a2a2a',
+                color: '#fff',
+                border: '1px solid #3a3a3a',
+                borderRadius: '12px',
                 fontSize: '14px',
                 fontFamily: 'Lato, sans-serif',
               },
               success: {
                 iconTheme: {
-                  primary: '#14bf96',
+                  primary: '#10b981',
                   secondary: '#fff',
                 },
               },
@@ -64,12 +64,12 @@ function App() {
           <IncomingCallModal />
 
           <Routes>
-          {/* Public Routes */}
+          {/* Public Routes - Landing with Auth */}
           <Route element={<PublicLayout />}>
             <Route path="/" element={<Landing />} />
           </Route>
 
-          {/* Auth Routes (no sidebar) */}
+          {/* Auth Routes - Redirect to Landing */}
           <Route element={<AuthLayout />}>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -86,7 +86,8 @@ function App() {
             }
           >
             <Route path="/dashboard/student" element={<StudentDashboard />} />
-            <Route path="/ask" element={<AskQuestion />} />
+            {/* /ask now redirects to dashboard since questions are asked from there */}
+            <Route path="/ask" element={<Navigate to="/dashboard/student" replace />} />
           </Route>
 
           {/* Tutor Routes */}
@@ -135,6 +136,9 @@ function App() {
           >
             <Route path="/profile" element={<Profile />} />
           </Route>
+
+          {/* Shared Conversation - Public route (accessible to anyone) */}
+          <Route path="/shared/:shareToken" element={<SharedConversation />} />
 
           {/* Redirects */}
           <Route path="/dashboard" element={<Navigate to="/dashboard/student" replace />} />

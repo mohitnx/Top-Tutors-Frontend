@@ -1,10 +1,12 @@
-import { Message, SenderType, MessageType, CallEvent, Attachment } from '../../types';
-import { Check, CheckCheck, Volume2, Phone, PhoneOff, PhoneMissed, PhoneIncoming, PhoneOutgoing, FileText, Download, ExternalLink } from 'lucide-react';
+import { Message, SenderType, MessageType, CallEvent, Attachment, ReactionType } from '../../types';
+import { Check, CheckCheck, Volume2, Phone, PhoneOff, PhoneMissed, PhoneOutgoing, FileText, ExternalLink } from 'lucide-react';
 import AudioPlayer from './AudioPlayer';
+import MessageActions from './MessageActions';
 
 interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
+  onReactionChange?: (messageId: string, likeCount: number, dislikeCount: number, userReaction: ReactionType | null) => void;
 }
 
 function formatTime(dateString: string): string {
@@ -175,7 +177,7 @@ function AttachmentDisplay({ attachments, isOwn }: { attachments: Attachment[]; 
   );
 }
 
-export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, onReactionChange }: MessageBubbleProps) {
   // Handle system messages (including call events)
   if (message.senderType === SenderType.SYSTEM || message.isSystemMessage) {
     // Check if it's a call-related system message
@@ -186,7 +188,7 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
     // Regular system message
     return (
       <div className="flex justify-center my-4">
-        <div className="bg-gray-100 text-gray-500 text-xs px-4 py-1.5 rounded-full font-medium">
+        <div className="bg-gray-700/50 text-gray-400 text-xs px-4 py-1.5 rounded-full font-medium">
           {message.content}
         </div>
       </div>
@@ -201,12 +203,12 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
       <div
         className={`relative max-w-[320px] md:max-w-[400px] ${
           isOwn
-            ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white rounded-2xl rounded-br-md'
-            : 'bg-white border border-gray-100 text-gray-900 rounded-2xl rounded-bl-md shadow-sm'
+            ? 'bg-amber-500 text-black rounded-2xl rounded-br-md'
+            : 'bg-gray-800/80 border border-gray-700/50 text-gray-100 rounded-2xl rounded-bl-md'
         }`}
       >
         {/* Message content */}
-        <div className="px-4 py-2.5">
+        <div className="px-3 py-2">
           {/* Attachments */}
           {hasAttachments && (
             <div className="mb-2">
@@ -216,8 +218,8 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
 
           {isAudioMessage ? (
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${isOwn ? 'bg-white/20' : 'bg-primary-50'}`}>
-                <Volume2 className={`w-4 h-4 ${isOwn ? 'text-white' : 'text-primary-600'}`} />
+              <div className={`p-2 rounded-full ${isOwn ? 'bg-black/20' : 'bg-amber-500/20'}`}>
+                <Volume2 className={`w-4 h-4 ${isOwn ? 'text-black' : 'text-amber-400'}`} />
               </div>
               <div className="flex-1 min-w-0">
                 {message.audioUrl ? (
@@ -229,36 +231,52 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
                     showTranscription={true}
                   />
                 ) : (
-                  <p className={`text-sm ${isOwn ? 'text-white/80' : 'text-gray-500'}`}>
+                  <p className={`text-sm ${isOwn ? 'text-black/80' : 'text-gray-400'}`}>
                     Audio message
                   </p>
                 )}
                 {message.content && !message.transcription && (
-                  <p className={`text-xs mt-1 ${isOwn ? 'text-white/70' : 'text-gray-400'}`}>
+                  <p className={`text-xs mt-1 ${isOwn ? 'text-black/70' : 'text-gray-500'}`}>
                     {message.content}
                   </p>
                 )}
               </div>
             </div>
           ) : message.content ? (
-            <p className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
               {message.content}
             </p>
           ) : null}
         </div>
 
         {/* Message footer - time and read status */}
-        <div className={`px-4 pb-2 flex items-center justify-end gap-1.5 ${
-          isOwn ? 'text-white/60' : 'text-gray-400'
-        }`}>
-          <span className="text-[11px] font-medium">
-            {formatTime(message.createdAt)}
-          </span>
-          {isOwn && (
-            message.isRead
-              ? <CheckCheck className="w-4 h-4 text-white/80" />
-              : <Check className="w-4 h-4" />
-          )}
+        <div className={`px-3 pb-1.5 flex items-center justify-between gap-2`}>
+          {/* Actions for tutor messages */}
+          <div className="flex-1">
+            {!isOwn && message.senderType === SenderType.TUTOR && (
+              <MessageActions
+                messageId={message.id}
+                senderType={message.senderType}
+                content={message.content}
+                likeCount={message.likeCount}
+                dislikeCount={message.dislikeCount}
+                userReaction={message.userReaction}
+                onReactionChange={(likes, dislikes, reaction) => 
+                  onReactionChange?.(message.id, likes, dislikes, reaction)
+                }
+              />
+            )}
+          </div>
+          <div className={`flex items-center gap-1 ${isOwn ? 'text-black/60' : 'text-gray-500'}`}>
+            <span className="text-[10px]">
+              {formatTime(message.createdAt)}
+            </span>
+            {isOwn && (
+              message.isRead
+                ? <CheckCheck className="w-3.5 h-3.5 text-black/70" />
+                : <Check className="w-3.5 h-3.5" />
+            )}
+          </div>
         </div>
       </div>
     </div>

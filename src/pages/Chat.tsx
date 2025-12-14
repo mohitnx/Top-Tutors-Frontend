@@ -1,17 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, MoreVertical, CheckCircle, X, Clock, Loader2 } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, CheckCircle, X, Clock, Loader2, Settings, Share2, Copy, Check, Link2Off } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi } from '../api';
 import { useConversationSocket } from '../hooks/useSocket';
 import { getSocket, onSocketConnect } from '../services/socket';
-import { Conversation, Message, MessageType, Role, ConversationStatus, CallStatus, StatusChangeEvent, SenderType, TutorAssignedEvent } from '../types';
+import { Conversation, Message, MessageType, Role, ConversationStatus, CallStatus, StatusChangeEvent, SenderType, TutorAssignedEvent, ReactionType } from '../types';
 import { MessageBubble, MessageInput, TypingIndicator } from '../components/chat/index';
 import { SubjectBadge, StatusBadge } from '../components/ui/Badge';
-import { MessageSkeleton } from '../components/ui/Loading';
 import Avatar from '../components/ui/Avatar';
-import { Modal } from '../components/ui/Modal';
-import Button from '../components/ui/Button';
 import { CallButton, ActiveCallUI, CallHistoryModal } from '../components/call';
 import { useCall } from '../contexts/CallContext';
 import toast from 'react-hot-toast';
@@ -32,6 +29,12 @@ export function Chat() {
   const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [showCallHistory, setShowCallHistory] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [shareStatus, setShareStatus] = useState<{
+    isShared: boolean;
+    shareUrl: string | null;
+  }>({ isShared: false, shareUrl: null });
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Check if currently in a call for this conversation
   const isInActiveCall = callState.conversationId === conversationId && 
@@ -77,25 +80,18 @@ export function Chat() {
 
   // Handle new message from socket
   const handleNewMessage = useCallback((message: Message) => {
-    // Skip messages from ourselves (we already added them locally when sending)
-    // Use senderType since senderId is profile ID, not user ID
     if (message.senderType === mySenderType) {
-      console.log('[Chat] Skipping own message from socket:', message.id);
       return;
     }
     
     setMessages(prev => {
-      // Avoid duplicates by message ID
       if (prev.some(m => m.id === message.id)) {
-        console.log('[Chat] Skipping duplicate message:', message.id);
         return prev;
       }
-      console.log('[Chat] Adding new message from socket:', message.id);
       return [...prev, message];
     });
     setIsOtherTyping(false);
     
-    // Mark as read
     if (conversationId) {
       messagesApi.markAsRead(conversationId);
     }
@@ -113,11 +109,10 @@ export function Chat() {
     onTyping: handleTyping,
   });
 
-  // Listen for status changes (when other party closes/resolves)
+  // Listen for status changes
   useEffect(() => {
     const handleStatusChange = (data: StatusChangeEvent) => {
       if (data.conversationId === conversationId) {
-        console.log('[Chat] Status changed:', data.status);
         setConversation(prev => prev ? { ...prev, status: data.status } : prev);
         
         const statusMessages: Record<string, string> = {
@@ -131,11 +126,8 @@ export function Chat() {
       }
     };
 
-    // Handle tutor assigned (for students waiting)
     const handleTutorAssigned = (data: TutorAssignedEvent) => {
       if (data.conversationId === conversationId) {
-        console.log('[Chat] Tutor assigned:', data.tutor.name);
-        // Refresh the conversation to get tutor info
         messagesApi.getConversation(conversationId).then(response => {
           setConversation(response.data);
           toast.success(`${data.tutor.name} is now helping you!`);
@@ -177,7 +169,6 @@ export function Chat() {
 
       setMessages(prev => [...prev, response.data.message]);
       
-      // Update conversation status if needed
       if (conversation?.status !== response.data.conversation.status) {
         setConversation(prev => prev ? { ...prev, status: response.data.conversation.status } : prev);
       }
@@ -189,7 +180,7 @@ export function Chat() {
     }
   };
 
-  // Send attachments (images/PDFs)
+  // Send attachments
   const handleSendAttachments = async (files: File[], content?: string) => {
     if (!conversationId) return;
 
@@ -203,7 +194,6 @@ export function Chat() {
         }
       );
 
-      // Add the message to the list
       setMessages(prev => [...prev, response.data.message as Message]);
     } catch (error) {
       console.error('Failed to send attachments:', error);
@@ -230,13 +220,78 @@ export function Chat() {
     }
   };
 
+  // Fetch share status
+  useEffect(() => {
+    const fetchShareStatus = async () => {
+      if (!conversationId) return;
+      try {
+        const response = await messagesApi.getShareStatus(conversationId);
+        setShareStatus({
+          isShared: response.data.isShared,
+          shareUrl: response.data.shareUrl ? `${window.location.origin}${response.data.shareUrl}` : null,
+        });
+      } catch (error) {
+        // Ignore - share status not critical
+      }
+    };
+    fetchShareStatus();
+  }, [conversationId]);
+
+  // Share conversation
+  const handleShare = async () => {
+    if (!conversationId) return;
+    setIsSharing(true);
+    try {
+      const response = await messagesApi.shareConversation(conversationId);
+      const fullUrl = `${window.location.origin}${response.data.shareUrl}`;
+      setShareStatus({ isShared: true, shareUrl: fullUrl });
+      await navigator.clipboard.writeText(fullUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+      toast.success('Share link copied!');
+    } catch (error) {
+      console.error('Failed to share:', error);
+      toast.error('Failed to share conversation');
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  // Unshare conversation
+  const handleUnshare = async () => {
+    if (!conversationId) return;
+    try {
+      await messagesApi.unshareConversation(conversationId);
+      setShareStatus({ isShared: false, shareUrl: null });
+      toast.success('Sharing disabled');
+    } catch (error) {
+      console.error('Failed to unshare:', error);
+      toast.error('Failed to disable sharing');
+    }
+  };
+
+  // Copy share link
+  const handleCopyShareLink = async () => {
+    if (!shareStatus.shareUrl) return;
+    await navigator.clipboard.writeText(shareStatus.shareUrl);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+    toast.success('Link copied!');
+  };
+
+  // Handle reaction changes
+  const handleReactionChange = (messageId: string, likeCount: number, dislikeCount: number, userReaction: ReactionType | null) => {
+    setMessages(prev => prev.map(m => 
+      m.id === messageId ? { ...m, likeCount, dislikeCount, userReaction } : m
+    ));
+  };
+
   // Determine other party
   const isStudent = user?.role === Role.STUDENT;
   const otherParty = isStudent
     ? conversation?.tutor?.user
     : conversation?.student?.user;
 
-  // Check if waiting for tutor (student side, pending conversation, no tutor assigned)
   const isWaitingForTutor = isStudent && 
     conversation?.status === ConversationStatus.PENDING && 
     !conversation?.tutor;
@@ -246,20 +301,23 @@ export function Chat() {
 
   if (isLoading) {
     return (
-      <div className="h-[calc(100vh-3.5rem)] flex flex-col bg-white">
-        <div className="p-4 border-b border-gray-200">
+      <div className="h-screen flex flex-col bg-[#212121]">
+        <div className="p-4 border-b border-gray-700/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-200 rounded-full animate-pulse" />
+            <div className="w-10 h-10 bg-gray-700 rounded-xl animate-pulse" />
             <div>
-              <div className="h-4 w-32 bg-gray-200 rounded animate-pulse mb-1" />
-              <div className="h-3 w-24 bg-gray-200 rounded animate-pulse" />
+              <div className="h-4 w-32 bg-gray-700 rounded animate-pulse mb-2" />
+              <div className="h-3 w-24 bg-gray-700/50 rounded animate-pulse" />
             </div>
           </div>
         </div>
         <div className="flex-1 p-4 space-y-4">
-          <MessageSkeleton />
-          <MessageSkeleton isOwn />
-          <MessageSkeleton />
+          <div className="flex justify-end">
+            <div className="w-48 h-16 bg-gray-700/30 rounded-2xl animate-pulse" />
+          </div>
+          <div className="flex justify-start">
+            <div className="w-64 h-20 bg-gray-700/30 rounded-2xl animate-pulse" />
+          </div>
         </div>
       </div>
     );
@@ -267,29 +325,26 @@ export function Chat() {
 
   if (!conversation) {
     return (
-      <div className="h-[calc(100vh-3.5rem)] flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center bg-[#212121]">
         <p className="text-gray-500">Conversation not found</p>
       </div>
     );
   }
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col bg-gray-50 lg:bg-white">
+    <div className="h-screen flex flex-col bg-[#212121]">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between flex-shrink-0">
+      <div className="bg-[#1c1c1c] border-b border-gray-700/50 px-4 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/conversations')}
-            className="lg:hidden p-1 text-gray-500 hover:text-gray-700"
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <Link to="/conversations" className="hidden lg:block p-1 text-gray-500 hover:text-gray-700">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
           
           {isWaitingForTutor ? (
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
               <Clock className="w-5 h-5 text-white animate-pulse" />
             </div>
           ) : (
@@ -297,7 +352,7 @@ export function Chat() {
           )}
 
           <div>
-            <h2 className="font-semibold text-gray-900">
+            <h2 className="font-semibold text-white">
               {isWaitingForTutor ? 'Finding a tutor...' : (otherParty?.name || 'Tutor')}
             </h2>
             <div className="flex items-center gap-2">
@@ -308,7 +363,6 @@ export function Chat() {
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Call button - only show if conversation is active and has a tutor assigned */}
           {canSendMessages && conversation.tutorId && (
             <CallButton 
               conversationId={conversationId!}
@@ -316,43 +370,63 @@ export function Chat() {
             />
           )}
           
+          {/* Share Button */}
+          <button
+            onClick={shareStatus.isShared ? handleCopyShareLink : handleShare}
+            disabled={isSharing}
+            className={`p-2 rounded-lg transition-colors ${
+              shareStatus.isShared 
+                ? 'text-emerald-400 hover:bg-emerald-500/20' 
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+            }`}
+            title={shareStatus.isShared ? 'Copy share link' : 'Share conversation'}
+          >
+            {isSharing ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : shareCopied ? (
+              <Check className="w-5 h-5 text-emerald-400" />
+            ) : (
+              <Share2 className="w-5 h-5" />
+            )}
+          </button>
+
           <button
             onClick={() => setShowCallHistory(true)}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors"
             title="Call History"
           >
             <Clock className="w-5 h-5" />
           </button>
           <button
             onClick={() => setShowOptionsModal(true)}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors"
           >
-            <MoreVertical className="w-5 h-5" />
+            <Settings className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       {/* Topic */}
       {conversation.topic && (
-        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex-shrink-0">
-          <p className="text-xs text-gray-600">
-            <span className="font-medium">Topic:</span> {conversation.topic}
+        <div className="bg-gray-800/30 px-4 py-2 border-b border-gray-700/30 flex-shrink-0">
+          <p className="text-xs text-gray-400">
+            <span className="font-medium text-gray-300">Topic:</span> {conversation.topic}
           </p>
         </div>
       )}
 
       {/* Waiting for Tutor Banner */}
       {isWaitingForTutor && (
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3 border-b border-amber-200 flex-shrink-0">
+        <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 px-4 py-3 border-b border-amber-500/30 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 bg-amber-100 rounded-full">
-              <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+            <div className="flex items-center justify-center w-8 h-8 bg-amber-500/20 rounded-lg">
+              <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-800">
+              <p className="text-sm font-medium text-amber-200">
                 Looking for the best tutor for you...
               </p>
-              <p className="text-xs text-amber-600">
+              <p className="text-xs text-amber-300/70">
                 Our tutors are being notified. You'll be connected shortly.
               </p>
             </div>
@@ -360,10 +434,13 @@ export function Chat() {
         </div>
       )}
 
-      {/* Messages - Clean modern background */}
+      {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-1 bg-gray-50"
+        className="flex-1 overflow-y-auto p-4 space-y-1"
+        style={{
+          background: 'linear-gradient(180deg, #1a1a1a 0%, #212121 100%)',
+        }}
       >
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-500 text-sm">
@@ -376,6 +453,7 @@ export function Chat() {
                 key={message.id}
                 message={message}
                 isOwn={message.senderType === mySenderType}
+                onReactionChange={handleReactionChange}
               />
             ))}
             {isOtherTyping && (
@@ -388,70 +466,114 @@ export function Chat() {
 
       {/* Message Input */}
       {canSendMessages ? (
-        <MessageInput
-          onSendText={handleSendText}
-          onSendAttachments={handleSendAttachments}
-          onTyping={sendTyping}
-          disabled={isSending}
-          placeholder={`Message ${otherParty?.name?.split(' ')[0] || 'tutor'}...`}
-        />
+        <div className="border-t border-gray-700/50 bg-[#1c1c1c]">
+          <MessageInput
+            onSendText={handleSendText}
+            onSendAttachments={handleSendAttachments}
+            onTyping={sendTyping}
+            disabled={isSending}
+            placeholder={`Message ${otherParty?.name?.split(' ')[0] || 'tutor'}...`}
+          />
+        </div>
       ) : (
-        <div className="p-4 bg-gray-100 border-t border-gray-200 text-center text-sm text-gray-500">
+        <div className="p-4 bg-gray-800/50 border-t border-gray-700/50 text-center text-sm text-gray-400">
           This conversation has been {conversation.status.toLowerCase()}.
         </div>
       )}
 
       {/* Options Modal */}
-      <Modal
-        isOpen={showOptionsModal}
-        onClose={() => setShowOptionsModal(false)}
-        title="Conversation Options"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <div className="p-3 bg-gray-50 rounded">
-            <p className="text-sm text-gray-600">
-              <strong>Subject:</strong> {conversation.subject}
-            </p>
-            {conversation.topic && (
-              <p className="text-sm text-gray-600 mt-1">
-                <strong>Topic:</strong> {conversation.topic}
-              </p>
-            )}
-            <p className="text-sm text-gray-600 mt-1">
-              <strong>Status:</strong> {conversation.status}
-            </p>
-          </div>
-
-          {canSendMessages && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Close Conversation</p>
-              <div className="flex gap-2">
-                <Button
-                  variant="success"
-                  size="sm"
-                  onClick={() => handleCloseConversation('RESOLVED')}
-                  isLoading={isClosing}
-                  leftIcon={<CheckCircle className="w-4 h-4" />}
-                  className="flex-1"
-                >
-                  Mark Resolved
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleCloseConversation('CLOSED')}
-                  isLoading={isClosing}
-                  leftIcon={<X className="w-4 h-4" />}
-                  className="flex-1"
-                >
-                  Close
-                </Button>
-              </div>
+      {showOptionsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-gray-800 rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4 border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Conversation Options</h3>
+              <button
+                onClick={() => setShowOptionsModal(false)}
+                className="p-1 text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          )}
+            
+            <div className="p-4 bg-gray-900/50 rounded-xl mb-4">
+              <p className="text-sm text-gray-300">
+                <strong className="text-gray-200">Subject:</strong> {conversation.subject.replace('_', ' ')}
+              </p>
+              {conversation.topic && (
+                <p className="text-sm text-gray-300 mt-1">
+                  <strong className="text-gray-200">Topic:</strong> {conversation.topic}
+                </p>
+              )}
+              <p className="text-sm text-gray-300 mt-1">
+                <strong className="text-gray-200">Status:</strong> {conversation.status}
+              </p>
+            </div>
+
+            {/* Sharing Section */}
+            <div className="mb-4">
+              <p className="text-sm font-medium text-gray-300 mb-2">Sharing</p>
+              {shareStatus.isShared ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 p-2 bg-gray-900/50 rounded-lg">
+                    <input 
+                      type="text" 
+                      value={shareStatus.shareUrl || ''} 
+                      readOnly 
+                      className="flex-1 bg-transparent text-xs text-gray-400 outline-none truncate"
+                    />
+                    <button 
+                      onClick={handleCopyShareLink}
+                      className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleUnshare}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors text-sm"
+                  >
+                    <Link2Off className="w-4 h-4" />
+                    Stop Sharing
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleShare}
+                  disabled={isSharing}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors text-sm disabled:opacity-50"
+                >
+                  {isSharing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                  Share Conversation
+                </button>
+              )}
+            </div>
+
+            {canSendMessages && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-300 mb-2">Close Conversation</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleCloseConversation('RESOLVED')}
+                    disabled={isClosing}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                  >
+                    {isClosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                    Resolved
+                  </button>
+                  <button
+                    onClick={() => handleCloseConversation('CLOSED')}
+                    disabled={isClosing}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-700/50 text-gray-300 border border-gray-600/50 rounded-xl hover:bg-gray-700 transition-colors disabled:opacity-50"
+                  >
+                    {isClosing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </Modal>
+      )}
 
       {/* Active Call UI */}
       {isInActiveCall && conversationId && (

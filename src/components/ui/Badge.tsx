@@ -60,13 +60,13 @@ export function SubjectBadge({ subject, className = '' }: { subject: Subject; cl
   );
 }
 
-// Status colors
+// Status colors (dark theme)
 const statusColors: Record<ConversationStatus, string> = {
-  [ConversationStatus.PENDING]: 'bg-amber-100 text-amber-800',
-  [ConversationStatus.ASSIGNED]: 'bg-sky-100 text-sky-800',
-  [ConversationStatus.ACTIVE]: 'bg-emerald-100 text-emerald-800',
-  [ConversationStatus.RESOLVED]: 'bg-gray-100 text-gray-600',
-  [ConversationStatus.CLOSED]: 'bg-gray-200 text-gray-500',
+  [ConversationStatus.PENDING]: 'bg-amber-500/20 text-amber-300',
+  [ConversationStatus.ASSIGNED]: 'bg-sky-500/20 text-sky-300',
+  [ConversationStatus.ACTIVE]: 'bg-emerald-500/20 text-emerald-300',
+  [ConversationStatus.RESOLVED]: 'bg-gray-600/30 text-gray-400',
+  [ConversationStatus.CLOSED]: 'bg-gray-700/30 text-gray-500',
 };
 
 const statusLabels: Record<ConversationStatus, string> = {
@@ -85,12 +85,12 @@ export function StatusBadge({ status, className = '' }: { status: ConversationSt
   );
 }
 
-// Urgency indicator
+// Urgency indicator (dark theme)
 const urgencyColors: Record<Urgency, string> = {
-  [Urgency.LOW]: 'bg-gray-100 text-gray-600',
-  [Urgency.NORMAL]: 'bg-primary-100 text-primary-700',
-  [Urgency.HIGH]: 'bg-orange-100 text-orange-700',
-  [Urgency.URGENT]: 'bg-red-100 text-red-700',
+  [Urgency.LOW]: 'bg-gray-600/30 text-gray-400',
+  [Urgency.NORMAL]: 'bg-blue-500/20 text-blue-300',
+  [Urgency.HIGH]: 'bg-orange-500/20 text-orange-300',
+  [Urgency.URGENT]: 'bg-red-500/20 text-red-300',
 };
 
 const urgencyLabels: Record<Urgency, string> = {

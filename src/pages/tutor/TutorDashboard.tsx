@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { MessageSquare, Clock, CheckCircle, Bell, AlertCircle, UserPlus, X, Lock, Unlock } from 'lucide-react';
+import { 
+  MessageSquare, Clock, CheckCircle, Bell, AlertCircle, UserPlus, X, 
+  Lock, Unlock, ChevronRight, Sparkles
+} from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesApi } from '../../api';
 import { Conversation, ConversationStatus } from '../../types';
-import { ConversationItem } from '../../components/chat/ConversationItem';
-import { ConversationSkeleton } from '../../components/ui/Loading';
 import { rejectConversation as socketRejectConversation } from '../../services/socket';
-import { SubjectBadge, UrgencyBadge } from '../../components/ui/Badge';
-import Button from '../../components/ui/Button';
+import { SubjectBadge, UrgencyBadge, StatusBadge } from '../../components/ui/Badge';
+import Avatar from '../../components/ui/Avatar';
 import toast from 'react-hot-toast';
 
 interface PendingConversation extends Conversation {
@@ -19,6 +20,33 @@ interface TutorStatus {
   isBusy: boolean;
   hasActiveSession: boolean;
   canAcceptNew: boolean;
+}
+
+// Stat Card Component
+function StatCard({ icon: Icon, label, value, color, highlight = false }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  color: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={`bg-gray-800/30 rounded-lg p-3 border transition-all ${
+      highlight 
+        ? 'border-amber-500/50' 
+        : 'border-gray-700/50'
+    }`}>
+      <div className="flex items-center gap-2">
+        <div className={`w-8 h-8 rounded-lg ${color} flex items-center justify-center`}>
+          <Icon className="w-4 h-4 text-white" />
+        </div>
+        <div>
+          <p className="text-lg font-bold text-white">{value}</p>
+          <p className="text-xs text-gray-400">{label}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function TutorDashboard() {
@@ -46,7 +74,6 @@ export function TutorDashboard() {
       const response = await messagesApi.getConversations(1, 20);
       const allConversations = response.data.data;
       
-      // Only keep non-pending (tutor's own sessions)
       const nonPending = allConversations.filter(c => c.status !== ConversationStatus.PENDING);
       setConversations(nonPending);
       
@@ -65,7 +92,7 @@ export function TutorDashboard() {
     }
   }, []);
 
-  // Fetch pending conversations matching tutor's topics
+  // Fetch pending conversations
   const fetchPendingForMe = useCallback(async () => {
     try {
       const response = await messagesApi.getPendingForMe();
@@ -81,7 +108,6 @@ export function TutorDashboard() {
       }));
     } catch (error) {
       console.error('Failed to fetch pending conversations:', error);
-      // Fallback: fetch regular pending and assume tutor can accept
       try {
         const fallback = await messagesApi.getConversations(1, 20, ConversationStatus.PENDING);
         const pending = fallback.data.data.map(c => ({ ...c, canAccept: true }));
@@ -94,42 +120,8 @@ export function TutorDashboard() {
 
   // Accept a pending conversation
   const handleAcceptConversation = async (conversationId: string) => {
-    // First check if tutor can accept
     if (!tutorStatus.canAcceptNew) {
-      toast.custom((t) => (
-        <div
-          className={`${t.visible ? 'animate-enter' : 'animate-leave'} 
-            max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto overflow-hidden`}
-          style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
-        >
-          <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
-          <div className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                <Lock className="w-5 h-5 text-amber-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-900">
-                  Complete Your Current Session First
-                </p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Please finish or close your active session before accepting a new one.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                toast.dismiss(t.id);
-                // Scroll to active sessions
-                document.getElementById('active-sessions')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className="w-full mt-3 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-md transition-colors"
-            >
-              Go to Active Session
-            </button>
-          </div>
-        </div>
-      ), { duration: 5000, position: 'top-center' });
+      toast.error('Complete your current session first');
       return;
     }
 
@@ -143,11 +135,9 @@ export function TutorDashboard() {
       
       if (error?.response?.status === 409 || errorMessage.toLowerCase().includes('active')) {
         toast.error('Complete your current session first');
-        // Refresh status
         fetchPendingForMe();
       } else if (error?.response?.status === 404 || errorMessage.toLowerCase().includes('taken')) {
         toast.error('This conversation has been taken by another tutor');
-        // Remove from list
         setPendingConversations(prev => prev.filter(c => c.id !== conversationId));
       } else {
         toast.error(errorMessage);
@@ -164,7 +154,7 @@ export function TutorDashboard() {
     toast('Conversation dismissed');
   };
 
-  // Initial fetch and refresh interval
+  // Initial fetch
   useEffect(() => {
     const fetchAll = async () => {
       setIsLoading(true);
@@ -174,7 +164,6 @@ export function TutorDashboard() {
 
     fetchAll();
     
-    // Refresh every 30 seconds
     const interval = setInterval(() => {
       fetchConversations();
       fetchPendingForMe();
@@ -187,125 +176,153 @@ export function TutorDashboard() {
     c => c.status === ConversationStatus.ACTIVE || c.status === ConversationStatus.ASSIGNED
   );
 
-  return (
-    <div className="p-6">
-      {/* Welcome Section */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">
-          Hello, {user?.name?.split(' ')[0] || 'Tutor'} 👋
-        </h1>
-        <p className="text-gray-600">
-          Help students succeed with your expertise.
-        </p>
-      </div>
+  // Get greeting based on time
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
 
-      {/* Tutor Status Banner */}
-      {tutorStatus.hasActiveSession && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center gap-3">
-          <div className="p-2 bg-amber-100 rounded-lg">
-            <Lock className="w-5 h-5 text-amber-600" />
+  return (
+    <div className="min-h-screen bg-[#212121] text-white p-4">
+      {/* Welcome Section */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-white" />
           </div>
-          <div className="flex-1">
-            <p className="font-semibold text-amber-900">You have an active session</p>
-            <p className="text-sm text-amber-700">
-              Complete your current session to accept new requests
+          <div>
+            <h1 className="text-lg font-bold text-white">
+              {getGreeting()}, {user?.name?.split(' ')[0] || 'Tutor'}!
+            </h1>
+            <p className="text-gray-400 text-xs">
+              Help students succeed with your expertise
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
+        </div>
+      </div>
+
+      {/* Status Banner */}
+      {tutorStatus.hasActiveSession && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4 flex items-center gap-2">
+          <div className="p-1.5 bg-amber-500/20 rounded">
+            <Lock className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-200">Active session in progress</p>
+            <p className="text-xs text-amber-300/70">
+              Complete to accept new requests
+            </p>
+          </div>
+          <button
             onClick={() => document.getElementById('active-sessions')?.scrollIntoView({ behavior: 'smooth' })}
+            className="px-3 py-1.5 bg-amber-500/20 text-amber-300 rounded text-xs font-medium hover:bg-amber-500/30 transition-colors"
           >
-            View Session
-          </Button>
+            View
+          </button>
         </div>
       )}
 
       {!tutorStatus.hasActiveSession && pendingConversations.length > 0 && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6 flex items-center gap-3">
-          <div className="p-2 bg-emerald-100 rounded-lg">
-            <Unlock className="w-5 h-5 text-emerald-600" />
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 mb-4 flex items-center gap-2">
+          <div className="p-1.5 bg-emerald-500/20 rounded">
+            <Unlock className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="flex-1">
-            <p className="font-semibold text-emerald-900">You're available</p>
-            <p className="text-sm text-emerald-700">
-              {pendingConversations.length} student{pendingConversations.length !== 1 ? 's' : ''} waiting for help
+            <p className="text-sm font-medium text-emerald-200">You're available</p>
+            <p className="text-xs text-emerald-300/70">
+              {pendingConversations.length} student{pendingConversations.length !== 1 ? 's' : ''} waiting
             </p>
           </div>
         </div>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          icon={<MessageSquare className="w-5 h-5" />}
-          label="Total Sessions"
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+        <StatCard 
+          icon={MessageSquare} 
+          label="Total" 
           value={stats.total}
-          color="primary"
+          color="bg-blue-500"
         />
-        <StatCard
-          icon={<AlertCircle className="w-5 h-5" />}
-          label="Pending"
+        <StatCard 
+          icon={AlertCircle} 
+          label="Pending" 
           value={stats.pending}
-          color="amber"
+          color="bg-amber-500"
           highlight={stats.pending > 0 && tutorStatus.canAcceptNew}
         />
-        <StatCard
-          icon={<Clock className="w-5 h-5" />}
-          label="Active"
+        <StatCard 
+          icon={Clock} 
+          label="Active" 
           value={stats.active}
-          color="blue"
+          color="bg-purple-500"
         />
-        <StatCard
-          icon={<CheckCircle className="w-5 h-5" />}
-          label="Completed"
+        <StatCard 
+          icon={CheckCircle} 
+          label="Done" 
           value={stats.resolved}
-          color="emerald"
+          color="bg-emerald-500"
         />
       </div>
 
-      {/* Active Sessions First (if tutor is busy) */}
+      {/* Current Session (if busy) */}
       {tutorStatus.hasActiveSession && activeConversations.length > 0 && (
-        <div id="active-sessions" className="bg-blue-50 border-2 border-blue-200 rounded-lg mb-6">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-blue-200">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-blue-600" />
-              <h2 className="font-bold text-blue-900">Current Session</h2>
+        <div id="active-sessions" className="bg-blue-500/10 border border-blue-500/30 rounded-lg mb-4 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-blue-500/20">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-blue-400" />
+              <h2 className="text-sm font-semibold text-blue-200">Current Session</h2>
             </div>
-            <span className="text-sm font-medium text-blue-700 bg-blue-100 px-2 py-1 rounded">
-              Complete to unlock new requests
+            <span className="text-xs font-medium text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded">
+              Complete to unlock
             </span>
           </div>
           <div>
             {activeConversations.map((conversation) => (
-              <ConversationItem
+              <Link
                 key={conversation.id}
-                conversation={conversation}
-                currentUserRole={user!.role}
-              />
+                to={`/conversations/${conversation.id}`}
+                className="flex items-center gap-3 p-3 hover:bg-blue-500/10 transition-colors"
+              >
+                <Avatar name={conversation.student?.user?.name || null} size="sm" className="w-9 h-9" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-sm font-medium text-white">
+                      {conversation.student?.user?.name || 'Student'}
+                    </span>
+                    <SubjectBadge subject={conversation.subject} />
+                  </div>
+                  <p className="text-xs text-gray-400 truncate">
+                    {conversation.topic || conversation.messages[0]?.content || 'No messages yet'}
+                  </p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </Link>
             ))}
           </div>
         </div>
       )}
 
-      {/* Pending Conversations - Students waiting for help */}
+      {/* Pending Requests */}
       {pendingConversations.length > 0 && (
-        <div className={`border-2 rounded-lg mb-6 ${
+        <div className={`rounded-lg mb-4 overflow-hidden border ${
           tutorStatus.canAcceptNew 
-            ? 'bg-amber-50 border-amber-200 animate-pulse-subtle' 
-            : 'bg-gray-50 border-gray-200'
+            ? 'bg-amber-500/10 border-amber-500/30' 
+            : 'bg-gray-800/30 border-gray-700/50'
         }`}>
-          <div className="flex items-center justify-between px-6 py-4 border-b border-inherit">
-            <div className="flex items-center gap-2">
-              <Bell className={`w-5 h-5 ${tutorStatus.canAcceptNew ? 'text-amber-600' : 'text-gray-500'}`} />
-              <h2 className={`font-bold ${tutorStatus.canAcceptNew ? 'text-amber-900' : 'text-gray-700'}`}>
-                {tutorStatus.canAcceptNew ? 'Students Waiting for Help' : 'Pending Requests (Locked)'}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
+            <div className="flex items-center gap-1.5">
+              <Bell className={`w-4 h-4 ${tutorStatus.canAcceptNew ? 'text-amber-400' : 'text-gray-500'}`} />
+              <h2 className={`text-sm font-semibold ${tutorStatus.canAcceptNew ? 'text-amber-200' : 'text-gray-400'}`}>
+                {tutorStatus.canAcceptNew ? 'Students Waiting' : 'Pending (Locked)'}
               </h2>
             </div>
-            <span className={`text-sm font-medium px-2 py-1 rounded ${
+            <span className={`text-xs font-medium px-2 py-0.5 rounded ${
               tutorStatus.canAcceptNew 
-                ? 'text-amber-700 bg-amber-100' 
-                : 'text-gray-600 bg-gray-200'
+                ? 'text-amber-300 bg-amber-500/20' 
+                : 'text-gray-500 bg-gray-700/50'
             }`}>
               {pendingConversations.length} waiting
             </span>
@@ -313,54 +330,64 @@ export function TutorDashboard() {
 
           <div className="divide-y divide-inherit">
             {pendingConversations.map((conversation) => (
-              <div key={conversation.id} className={`p-4 transition-colors ${
-                tutorStatus.canAcceptNew ? 'hover:bg-amber-100/50' : 'opacity-75'
+              <div key={conversation.id} className={`p-3 transition-colors ${
+                tutorStatus.canAcceptNew ? 'hover:bg-amber-500/10' : 'opacity-60'
               }`}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-gray-900">
-                        {conversation.student?.user?.name || 'Student'}
-                      </span>
-                      <SubjectBadge subject={conversation.subject} />
-                      <UrgencyBadge urgency={conversation.urgency} />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                    <Avatar name={conversation.student?.user?.name || null} size="sm" className="w-9 h-9" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                        <span className="text-sm font-medium text-white">
+                          {conversation.student?.user?.name || 'Student'}
+                        </span>
+                        <SubjectBadge subject={conversation.subject} />
+                        <UrgencyBadge urgency={conversation.urgency} />
+                      </div>
+                      {conversation.topic && (
+                        <p className="text-xs text-gray-300 truncate mb-0.5">
+                          {conversation.topic}
+                        </p>
+                      )}
+                      {conversation.messages && conversation.messages.length > 0 && (
+                        <p className="text-xs text-gray-500 line-clamp-2">
+                          "{conversation.messages[0]?.content?.slice(0, 80)}..."
+                        </p>
+                      )}
+                      {!tutorStatus.canAcceptNew && (
+                        <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5" />
+                          Complete session to accept
+                        </p>
+                      )}
                     </div>
-                    {conversation.topic && (
-                      <p className="text-sm text-gray-600 truncate mb-2">
-                        {conversation.topic}
-                      </p>
-                    )}
-                    {conversation.messages && conversation.messages.length > 0 && (
-                      <p className="text-sm text-gray-500 line-clamp-2">
-                        "{conversation.messages[0]?.content?.slice(0, 100)}
-                        {(conversation.messages[0]?.content?.length || 0) > 100 ? '...' : ''}"
-                      </p>
-                    )}
-                    {!tutorStatus.canAcceptNew && (
-                      <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
-                        <Lock className="w-3 h-3" />
-                        Complete your current session to accept
-                      </p>
-                    )}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button
-                      size="sm"
-                      variant="secondary"
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
                       onClick={() => handleRejectConversation(conversation.id)}
-                      leftIcon={<X className="w-4 h-4" />}
+                      className="flex items-center gap-1 px-2 py-1.5 bg-gray-700/50 text-gray-300 rounded text-xs hover:bg-gray-700 transition-colors"
                     >
+                      <X className="w-3 h-3" />
                       Skip
-                    </Button>
-                    <Button
-                      size="sm"
+                    </button>
+                    <button
                       onClick={() => handleAcceptConversation(conversation.id)}
-                      isLoading={acceptingId === conversation.id}
-                      disabled={!tutorStatus.canAcceptNew || !conversation.canAccept}
-                      leftIcon={tutorStatus.canAcceptNew ? <UserPlus className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                      disabled={!tutorStatus.canAcceptNew || !conversation.canAccept || acceptingId === conversation.id}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
+                        tutorStatus.canAcceptNew
+                          ? 'bg-amber-500 text-black hover:bg-amber-400'
+                          : 'bg-gray-700 text-gray-400'
+                      }`}
                     >
+                      {acceptingId === conversation.id ? (
+                        <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : tutorStatus.canAcceptNew ? (
+                        <UserPlus className="w-3 h-3" />
+                      ) : (
+                        <Lock className="w-3 h-3" />
+                      )}
                       {tutorStatus.canAcceptNew ? 'Accept' : 'Locked'}
-                    </Button>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -369,91 +396,69 @@ export function TutorDashboard() {
         </div>
       )}
 
-      {/* Active Conversations (if tutor is NOT busy, show them normally) */}
+      {/* Active Sessions (when not busy) */}
       {!tutorStatus.hasActiveSession && (
-        <div id="active-sessions" className="bg-white border border-gray-200 rounded mb-6">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="font-bold text-gray-900">My Active Sessions</h2>
-            <span className="text-sm text-gray-500">{activeConversations.length} active</span>
+        <div id="active-sessions" className="bg-gray-800/30 border border-gray-700/50 rounded-lg mb-4 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50">
+            <h2 className="text-sm font-semibold text-white">My Active Sessions</h2>
+            <span className="text-xs text-gray-500">{activeConversations.length} active</span>
           </div>
 
           {isLoading ? (
-            <div>
+            <div className="p-3 space-y-2">
               {[1, 2, 3].map((i) => (
-                <ConversationSkeleton key={i} />
+                <div key={i} className="h-12 bg-gray-700/30 rounded-lg animate-pulse" />
               ))}
             </div>
           ) : activeConversations.length === 0 ? (
-            <div className="p-8 text-center">
-              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Clock className="w-6 h-6 text-gray-400" />
+            <div className="p-6 text-center">
+              <div className="w-10 h-10 bg-gray-700/50 rounded-xl flex items-center justify-center mx-auto mb-3">
+                <Clock className="w-5 h-5 text-gray-500" />
               </div>
-              <h3 className="font-semibold text-gray-900 mb-1">No active sessions</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="text-sm font-medium text-gray-300 mb-1">No active sessions</h3>
+              <p className="text-xs text-gray-500">
                 {pendingConversations.length > 0 
-                  ? 'Accept a pending question above to start helping!'
-                  : 'You\'ll be notified when a new question arrives.'}
+                  ? 'Accept a pending question above to start!'
+                  : 'You\'ll be notified when a question arrives.'}
               </p>
             </div>
           ) : (
             <div>
               {activeConversations.map((conversation) => (
-                <ConversationItem
+                <Link
                   key={conversation.id}
-                  conversation={conversation}
-                  currentUserRole={user!.role}
-                />
+                  to={`/conversations/${conversation.id}`}
+                  className="flex items-center gap-3 p-3 hover:bg-gray-700/30 transition-colors"
+                >
+                  <Avatar name={conversation.student?.user?.name || null} size="sm" className="w-9 h-9" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-sm font-medium text-white">
+                        {conversation.student?.user?.name || 'Student'}
+                      </span>
+                      <SubjectBadge subject={conversation.subject} />
+                      <StatusBadge status={conversation.status} />
+                    </div>
+                    <p className="text-xs text-gray-400 truncate">
+                      {conversation.topic || conversation.messages[0]?.content || 'No messages yet'}
+                    </p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </Link>
               ))}
             </div>
           )}
         </div>
       )}
 
-      {/* All Conversations Link */}
+      {/* View All Link */}
       <div className="text-center">
         <Link 
           to="/conversations" 
-          className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+          className="text-xs text-amber-400 hover:text-amber-300 font-medium"
         >
           View all conversations →
         </Link>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ 
-  icon, 
-  label, 
-  value, 
-  color,
-  highlight = false,
-}: { 
-  icon: React.ReactNode; 
-  label: string; 
-  value: number; 
-  color: 'primary' | 'amber' | 'emerald' | 'blue';
-  highlight?: boolean;
-}) {
-  const colors = {
-    primary: 'bg-primary-50 text-primary-600',
-    amber: 'bg-amber-50 text-amber-600',
-    emerald: 'bg-emerald-50 text-emerald-600',
-    blue: 'bg-blue-50 text-blue-600',
-  };
-
-  return (
-    <div className={`bg-white border rounded p-4 ${
-      highlight ? 'border-amber-400 ring-2 ring-amber-200 animate-pulse' : 'border-gray-200'
-    }`}>
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded ${colors[color]}`}>
-          {icon}
-        </div>
-        <div>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-sm text-gray-500">{label}</p>
-        </div>
       </div>
     </div>
   );

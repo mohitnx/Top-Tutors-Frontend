@@ -200,17 +200,17 @@ export function MessageInput({
   const canSend = (message.trim() || attachments.length > 0) && !disabled && !isUploading;
 
   return (
-    <div className="bg-white border-t border-gray-200">
+    <div className="bg-[#1c1c1c]">
       {/* Attachment Previews */}
       {attachments.length > 0 && (
-        <div className="px-4 pt-3 pb-2 flex flex-wrap gap-2">
+        <div className="px-3 pt-2 pb-1 flex flex-wrap gap-2">
           {attachments.map((attachment, index) => (
             <div
               key={index}
               className="relative group"
             >
               {attachment.type === 'image' ? (
-                <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200">
+                <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-700">
                   <img
                     src={attachment.preview}
                     alt={attachment.file.name}
@@ -218,9 +218,9 @@ export function MessageInput({
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                  <FileText className="w-5 h-5 text-red-500" />
-                  <span className="text-sm text-gray-700 max-w-[120px] truncate">
+                <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 rounded-lg border border-gray-700">
+                  <FileText className="w-4 h-4 text-red-400" />
+                  <span className="text-xs text-gray-300 max-w-[100px] truncate">
                     {attachment.file.name}
                   </span>
                 </div>
@@ -229,9 +229,9 @@ export function MessageInput({
               {/* Remove button */}
               <button
                 onClick={() => removeAttachment(index)}
-                className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors"
+                className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-colors"
               >
-                <X className="w-3 h-3" />
+                <X className="w-2.5 h-2.5" />
               </button>
             </div>
           ))}
@@ -239,7 +239,7 @@ export function MessageInput({
       )}
 
       {/* Input Row */}
-      <div className="flex items-end gap-2 p-4 pt-2">
+      <div className="flex items-end gap-2 p-3">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -254,10 +254,10 @@ export function MessageInput({
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || isUploading}
-          className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors disabled:opacity-50"
+          className="p-1.5 text-gray-500 hover:text-amber-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
           title="Attach image or PDF"
         >
-          <Paperclip className="w-5 h-5" />
+          <Paperclip className="w-4 h-4" />
         </button>
 
         {/* Text input */}
@@ -269,28 +269,28 @@ export function MessageInput({
           placeholder={placeholder}
           disabled={disabled || isUploading}
           rows={1}
-          className="flex-1 resize-none px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 disabled:opacity-50"
-          style={{ maxHeight: '120px' }}
+          className="flex-1 resize-none px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+          style={{ maxHeight: '100px' }}
         />
 
         {/* Send button */}
         <button
           onClick={handleSend}
           disabled={!canSend}
-          className="p-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+          className="p-2 bg-amber-500 text-black rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed flex-shrink-0"
           aria-label="Send message"
         >
           {isUploading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            <Send className="w-5 h-5" />
+            <Send className="w-4 h-4" />
           )}
         </button>
       </div>
 
       {/* Help text for attachments */}
       {attachments.length > 0 && (
-        <div className="px-4 pb-2 text-xs text-gray-400">
+        <div className="px-3 pb-2 text-xs text-gray-500">
           {attachments[0].type === 'image' 
             ? 'Max 1 image allowed' 
             : `${attachments.length}/${MAX_PDF_COUNT} PDFs`}

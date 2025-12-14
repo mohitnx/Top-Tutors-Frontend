@@ -1,812 +1,298 @@
-import { useState, useRef, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { 
-  Send, 
-  Mic, 
-  Sparkles,
-  BookOpen,
-  ArrowRight,
-  Lock,
-  X,
-  Loader2,
-  Play,
-  Pause,
-  Trash2,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  Zap
-} from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Eye, EyeOff, Loader2, ArrowRight, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { messagesApi } from '../api';
-import { MessageType, ProcessingStatusEvent, TutorAssignedEvent, AllTutorsBusyEvent } from '../types';
-import { useAudioRecorder } from '../hooks/useAudioRecorder';
-import { useStudentNotifications } from '../hooks/useSocket';
 import toast from 'react-hot-toast';
 
-const FREE_QUERY_KEY = 'topTutors_freeQueryUsed';
-
-const suggestionPrompts = [
-  "How do I solve quadratic equations?",
-  "Explain Newton's laws of motion",
-  "Help me understand photosynthesis",
-  "What's the difference between mitosis and meiosis?"
-];
-
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
+// Claude-inspired Landing Page
 export function Landing() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, login, register, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   
-  // Query state
-  const [question, setQuestion] = useState('');
+  // Get redirect URL from query params (for shared conversation flow)
+  const redirectUrl = searchParams.get('redirect');
+  
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [loginModalReason, setLoginModalReason] = useState<'audio' | 'limit'>('limit');
-  
-  // Free query tracking
-  const [hasFreeQueryUsed, setHasFreeQueryUsed] = useState(() => {
-    return localStorage.getItem(FREE_QUERY_KEY) === 'true';
-  });
 
-  // Audio recording
-  const [isAudioMode, setIsAudioMode] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  
-  const {
-    isRecording,
-    isPaused,
-    duration,
-    audioUrl,
-    error: recorderError,
-    startRecording,
-    stopRecording,
-    pauseRecording,
-    resumeRecording,
-    resetRecording,
-    getAudioFile,
-  } = useAudioRecorder(300);
+  // If already authenticated, redirect to dashboard or redirect URL
+  if (isAuthenticated && user) {
+    const defaultPath = user.role === 'TUTOR' ? '/dashboard/tutor' : 
+                        user.role === 'ADMIN' ? '/admin' : '/dashboard/student';
+    const targetPath = redirectUrl || defaultPath;
+    navigate(targetPath, { replace: true });
+    return null;
+  }
 
-  // Processing status state
-  const [processingStatus, setProcessingStatus] = useState<ProcessingStatusEvent | null>(null);
-  const [showProcessingModal, setShowProcessingModal] = useState(false);
-  const pendingConversationRef = useRef<string | null>(null);
-
-  // Handle processing status updates
-  const handleProcessingStatus = useCallback((data: ProcessingStatusEvent) => {
-    setProcessingStatus(data);
-  }, []);
-
-  const handleTutorAssigned = useCallback((data: TutorAssignedEvent) => {
-    setShowProcessingModal(false);
-    setIsSubmitting(false);
-    toast.success(`${data.tutor.name} is ready to help you!`);
-    navigate(`/conversations/${data.conversationId}`);
-  }, [navigate]);
-
-  const handleAllTutorsBusy = useCallback((data: AllTutorsBusyEvent) => {
-    setProcessingStatus({
-      status: 'ALL_TUTORS_BUSY',
-      message: data.message,
-      progress: 100,
-    });
-    toast.error(data.message);
-  }, []);
-
-  // Only subscribe to notifications when authenticated
-  useStudentNotifications(isAuthenticated ? {
-    onProcessingStatus: handleProcessingStatus,
-    onTutorAssigned: handleTutorAssigned,
-    onAllTutorsBusy: handleAllTutorsBusy,
-  } : {});
-
-  // Check if user can make a request
-  const canMakeRequest = isAuthenticated || !hasFreeQueryUsed;
-  
-  // Handle audio button click
-  const handleAudioClick = () => {
-    if (!isAuthenticated) {
-      setLoginModalReason('audio');
-      setShowLoginModal(true);
-      return;
-    }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    if (!isAudioMode) {
-      setIsAudioMode(true);
-      startRecording();
-    }
-  };
-
-  const handleStopRecording = () => {
-    stopRecording();
-  };
-
-  const handleCancelAudio = () => {
-    resetRecording();
-    setIsAudioMode(false);
-  };
-
-  const togglePlayback = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  // Handle text submission
-  const handleTextSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    
-    if (!question.trim()) {
-      toast.error('Please enter your question');
-      return;
-    }
-
-    if (question.trim().length < 10) {
-      toast.error('Please provide more detail in your question');
-      return;
-    }
-
-    // Check if can make request
-    if (!isAuthenticated && hasFreeQueryUsed) {
-      setLoginModalReason('limit');
-      setShowLoginModal(true);
-      return;
+    if (mode === 'register') {
+      if (!name.trim()) {
+        toast.error('Please enter your name');
+        return;
+      }
+      if (password !== confirmPassword) {
+        toast.error('Passwords do not match');
+        return;
+      }
+      if (password.length < 8) {
+        toast.error('Password must be at least 8 characters');
+        return;
+      }
     }
 
     setIsSubmitting(true);
-    setShowProcessingModal(true);
-    setProcessingStatus({
-      status: 'RECEIVING',
-      message: 'Sending your question...',
-      progress: 10,
-    });
-
     try {
-      const response = await messagesApi.sendMessage({
-        content: question.trim(),
-        messageType: MessageType.TEXT,
-      });
-
-      // Mark free query as used for non-authenticated users
-      if (!isAuthenticated) {
-        localStorage.setItem(FREE_QUERY_KEY, 'true');
-        setHasFreeQueryUsed(true);
-      }
-
-      pendingConversationRef.current = response.data.conversation.id;
-
-      if (response.data.conversation.tutor) {
-        const tutorName = response.data.conversation.tutor.user?.name || 'a tutor';
-        toast.success(`Your question has been sent to ${tutorName}!`);
-        setShowProcessingModal(false);
-        navigate(`/conversations/${response.data.conversation.id}`);
+      if (mode === 'login') {
+        await login(email, password);
       } else {
-        setProcessingStatus({
-          status: 'WAITING_FOR_TUTOR',
-          message: 'Waiting for an available tutor...',
-          progress: 80,
-        });
-        
-        setTimeout(() => {
-          if (pendingConversationRef.current) {
-            setShowProcessingModal(false);
-            navigate(`/conversations/${pendingConversationRef.current}`);
-          }
-        }, 10000);
+        await register(email, password, name);
       }
-    } catch (error: unknown) {
-      console.error('Failed to send question:', error);
-      setShowProcessingModal(false);
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to send your question. Please try again.');
+    } catch {
+      // Error handled in auth context
+    } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Handle audio submission
-  const handleAudioSubmit = async () => {
-    const audioFile = getAudioFile();
-    if (!audioFile) {
-      toast.error('No audio to send');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setShowProcessingModal(true);
-    setProcessingStatus({
-      status: 'RECEIVING',
-      message: 'Uploading your voice message...',
-      progress: 10,
-    });
-
-    try {
-      const response = await messagesApi.sendAudioMessage(
-        audioFile,
-        undefined,
-        (progress) => {
-          if (progress < 100) {
-            setProcessingStatus({
-              status: 'RECEIVING',
-              message: `Uploading... ${progress}%`,
-              progress: Math.min(progress / 2, 40),
-            });
-          }
-        }
-      );
-
-      pendingConversationRef.current = response.data.conversation.id;
-
-      if (response.data.classification) {
-        const { subject, topic } = response.data.classification;
-        setProcessingStatus({
-          status: 'CLASSIFYING',
-          message: `Detected: ${subject.replace('_', ' ')}${topic ? ` - ${topic}` : ''}`,
-          progress: 70,
-        });
-      }
-
-      if (response.data.conversation.tutor) {
-        const tutorName = response.data.conversation.tutor.user?.name || 'a tutor';
-        toast.success(`Your question has been sent to ${tutorName}!`);
-        setShowProcessingModal(false);
-        navigate(`/conversations/${response.data.conversation.id}`);
-      } else {
-        setProcessingStatus({
-          status: 'WAITING_FOR_TUTOR',
-          message: 'Finding the best tutor for you...',
-          progress: 85,
-        });
-        
-        setTimeout(() => {
-          if (pendingConversationRef.current) {
-            setShowProcessingModal(false);
-            navigate(`/conversations/${pendingConversationRef.current}`);
-          }
-        }, 10000);
-      }
-    } catch (error: unknown) {
-      console.error('Failed to send audio:', error);
-      setShowProcessingModal(false);
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to send audio. Please try again.');
-      setIsSubmitting(false);
-    }
+  const handleGoogleAuth = () => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
+    // Include redirect URL in state if present
+    const state = redirectUrl ? encodeURIComponent(redirectUrl) : '';
+    const url = state 
+      ? `${API_BASE_URL}/auth/google?state=${state}`
+      : `${API_BASE_URL}/auth/google`;
+    window.location.href = url;
   };
-
-  const handleSuggestionClick = (prompt: string) => {
-    setQuestion(prompt);
-  };
-
-  // Determine theme classes based on auth state
-  const isDormant = !isAuthenticated;
 
   return (
-    <div className={`min-h-screen transition-all duration-700 ${
-      isDormant 
-        ? 'bg-[#1a1a1a]' 
-        : 'bg-gradient-to-br from-primary-50 via-white to-emerald-50'
-    }`}>
-      
-      {/* Animated Background - Only visible when active */}
-      {!isDormant && (
-        <div className="fixed inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 -left-4 w-72 h-72 bg-primary-200 rounded-full mix-blend-multiply filter blur-xl opacity-50 animate-blob" />
-          <div className="absolute top-40 -right-4 w-72 h-72 bg-emerald-200 rounded-full mix-blend-multiply filter blur-xl opacity-50 animate-blob animation-delay-2000" />
-          <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-teal-200 rounded-full mix-blend-multiply filter blur-xl opacity-50 animate-blob animation-delay-4000" />
-        </div>
-      )}
-
-      {/* Dormant grid pattern */}
-      {isDormant && (
-        <div className="fixed inset-0 overflow-hidden pointer-events-none">
-          <div 
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-            }}
-          />
-          {/* Subtle glow effect */}
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-gradient-radial from-gray-800/30 to-transparent rounded-full blur-3xl" />
-        </div>
-      )}
-
-      {/* Header */}
-      <header className={`fixed top-0 left-0 right-0 z-40 border-b transition-colors duration-500 ${
-        isDormant 
-          ? 'bg-[#1a1a1a]/90 border-gray-800 backdrop-blur-sm' 
-          : 'bg-white/90 border-gray-200 backdrop-blur-sm'
-      }`}>
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-500 ${
-              isDormant 
-                ? 'bg-gray-700' 
-                : 'bg-gradient-to-br from-primary-500 to-emerald-500'
-            }`}>
-              <BookOpen className={`w-4 h-4 ${isDormant ? 'text-gray-400' : 'text-white'}`} />
-            </div>
-            <span className={`font-bold text-lg ${isDormant ? 'text-gray-300' : 'text-gray-900'}`}>
-              Top Tutors
-            </span>
+    <div className="min-h-screen bg-[#1c1c1c] flex">
+      {/* Left Side - Auth Form */}
+      <div className="flex-1 flex flex-col justify-center px-6 lg:px-12 xl:px-20 relative">
+        {/* Logo */}
+        <div className="absolute top-6 left-6 flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-black" />
           </div>
-          
-          <div className="flex items-center gap-3">
-            {isAuthenticated ? (
-              <Link 
-                to="/dashboard/student" 
-                className="btn-primary btn-sm flex items-center gap-2"
-              >
-                Dashboard
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            ) : (
-              <>
-                <Link 
-                  to="/login" 
-                  className={`text-sm font-medium transition-colors ${
-                    isDormant ? 'text-gray-400 hover:text-gray-200' : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Sign in
-                </Link>
-                <Link 
-                  to="/register" 
-                  className={`text-sm font-semibold px-4 py-2 rounded transition-all ${
-                    isDormant 
-                      ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' 
-                      : 'bg-primary-500 text-white hover:bg-primary-600'
-                  }`}
-                >
-                  Get started
-                </Link>
-              </>
-            )}
+          <span className="text-lg font-semibold text-white tracking-tight">TopTutors</span>
+        </div>
+
+        <div className="max-w-sm mx-auto w-full">
+          {/* Tagline */}
+          <div className="mb-8">
+            <h1 className="text-4xl md:text-5xl font-serif italic text-[#e8dcc4] leading-tight mb-2">
+              Learning?
+            </h1>
+            <h1 className="text-4xl md:text-5xl font-serif italic text-[#a89880] leading-tight">
+              Mastered.
+            </h1>
+            <p className="mt-4 text-base text-gray-400 font-light">
+              AI-powered tutoring that adapts to you
+            </p>
           </div>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="relative min-h-[calc(100vh-3.5rem)] flex flex-col items-center justify-center px-4 pt-20 pb-8">
-        {/* Hero Text */}
-        <div className="text-center mb-8 mt-8">
-          {isDormant && !hasFreeQueryUsed && (
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium mb-6 ${
-              isDormant ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-800' : 'bg-primary-100 text-primary-700'
-            }`}>
-              <Sparkles className="w-3 h-3" />
-              <span>Try one question free — no signup required</span>
-            </div>
-          )}
-          
-          {isDormant && hasFreeQueryUsed && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-900/50 text-amber-400 border border-amber-800 rounded-full text-xs font-medium mb-6">
-              <Lock className="w-3 h-3" />
-              <span>Sign up to continue asking questions</span>
-            </div>
-          )}
-
-          {isAuthenticated && (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary-100 text-primary-700 rounded-full text-xs font-medium mb-6">
-              <Zap className="w-3 h-3" />
-              <span>Welcome back, {user?.name?.split(' ')[0] || 'Student'}!</span>
-            </div>
-          )}
-          
-          <h1 className={`text-4xl md:text-5xl lg:text-6xl font-black mb-4 transition-colors duration-500 ${
-            isDormant ? 'text-gray-100' : 'text-gray-900'
-          }`}>
-            {isDormant ? (
-              <>What do you need<br /><span className="text-gray-500">help with?</span></>
-            ) : (
-              <>What do you need<br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-emerald-500">
-                help with?
-              </span></>
-            )}
-          </h1>
-          
-          <p className={`text-lg max-w-md mx-auto transition-colors duration-500 ${
-            isDormant ? 'text-gray-500' : 'text-gray-600'
-          }`}>
-            Ask any academic question and get matched with an expert tutor instantly.
-          </p>
-        </div>
-
-        {/* Chat Input */}
-        <div className="w-full max-w-2xl mb-8">
-          {/* Recording State */}
-          {isRecording && (
-            <div className={`rounded-2xl p-6 text-center mb-4 border ${
-              isDormant 
-                ? 'bg-gray-900 border-gray-800' 
-                : 'bg-white border-gray-200 shadow-lg'
-            }`}>
-              <div className="flex items-center justify-center gap-2 mb-4">
-                <span className="relative flex h-4 w-4">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500"></span>
-                </span>
-                <span className={`text-lg font-medium ${isDormant ? 'text-gray-200' : 'text-gray-900'}`}>
-                  {isPaused ? 'Paused' : 'Recording...'}
-                </span>
-              </div>
-
-              <div className={`text-4xl font-mono font-bold mb-6 ${isDormant ? 'text-gray-200' : 'text-gray-900'}`}>
-                {formatDuration(duration)}
-              </div>
-
-              {/* Waveform */}
-              <div className="flex items-center justify-center gap-1 h-12 mb-6">
-                {[...Array(30)].map((_, i) => (
-                  <div
-                    key={i}
-                    className={`w-1 rounded-full transition-all duration-100 ${
-                      isDormant ? 'bg-red-500/70' : 'bg-red-400'
-                    }`}
-                    style={{
-                      height: isPaused ? '8px' : `${Math.random() * 32 + 8}px`,
-                    }}
-                  />
-                ))}
-              </div>
-
-              <div className="flex items-center justify-center gap-4">
-                <button
-                  onClick={isPaused ? resumeRecording : pauseRecording}
-                  className={`p-3 rounded-full ${
-                    isDormant ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
-                </button>
-                <button
-                  onClick={handleStopRecording}
-                  className="p-4 bg-red-500 text-white rounded-full hover:bg-red-600"
-                >
-                  <div className="w-5 h-5 bg-white rounded" />
-                </button>
-                <button
-                  onClick={handleCancelAudio}
-                  className={`p-3 rounded-full ${
-                    isDormant ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Audio Review State */}
-          {audioUrl && !isRecording && (
-            <div className={`rounded-2xl p-6 mb-4 border ${
-              isDormant 
-                ? 'bg-gray-900 border-gray-800' 
-                : 'bg-white border-gray-200 shadow-lg'
-            }`}>
-              <audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} />
-              
-              <div className="flex items-center justify-center gap-4 mb-6">
-                <button
-                  onClick={togglePlayback}
-                  className={`p-4 rounded-full ${
-                    isDormant 
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-500' 
-                      : 'bg-primary-500 text-white hover:bg-primary-600'
-                  }`}
-                >
-                  {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                </button>
-                <div className={`text-left ${isDormant ? 'text-gray-300' : 'text-gray-900'}`}>
-                  <p className="font-medium">Voice Recording</p>
-                  <p className={`text-sm ${isDormant ? 'text-gray-500' : 'text-gray-500'}`}>
-                    {formatDuration(duration)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center gap-4">
-                <button
-                  onClick={handleCancelAudio}
-                  disabled={isSubmitting}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    isDormant 
-                      ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800' 
-                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
-                  } disabled:opacity-50`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
-                </button>
-                <button
-                  onClick={() => {
-                    resetRecording();
-                    startRecording();
-                  }}
-                  disabled={isSubmitting}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    isDormant 
-                      ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800' 
-                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
-                  } disabled:opacity-50`}
-                >
-                  <Mic className="w-4 h-4" />
-                  Re-record
-                </button>
-                <button
-                  onClick={handleAudioSubmit}
-                  disabled={isSubmitting}
-                  className={`flex items-center gap-2 px-6 py-2 rounded-lg font-semibold transition-all ${
-                    isDormant 
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-500' 
-                      : 'bg-primary-500 text-white hover:bg-primary-600'
-                  } disabled:opacity-50`}
-                >
-                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  Send
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Text Input */}
-          {!isRecording && !audioUrl && (
-            <form onSubmit={handleTextSubmit}>
-              <div className={`relative rounded-2xl border transition-all duration-300 ${
-                isDormant 
-                  ? 'bg-gray-900 border-gray-700 focus-within:border-gray-600 focus-within:ring-1 focus-within:ring-gray-600' 
-                  : 'bg-white border-gray-200 shadow-lg focus-within:border-primary-300 focus-within:ring-4 focus-within:ring-primary-100'
-              }`}>
-                <textarea
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleTextSubmit();
-                    }
-                  }}
-                  placeholder="Ask any question about Math, Physics, Chemistry, or any subject..."
-                  rows={3}
-                  disabled={isSubmitting}
-                  className={`w-full p-4 pb-14 bg-transparent resize-none focus:outline-none text-base ${
-                    isDormant 
-                      ? 'text-gray-200 placeholder-gray-600' 
-                      : 'text-gray-900 placeholder-gray-400'
-                  }`}
-                />
-                
-                {/* Input Actions */}
-                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleAudioClick}
-                      disabled={isSubmitting}
-                      className={`p-2 rounded-lg transition-colors ${
-                        isDormant 
-                          ? 'text-gray-500 hover:text-gray-300 hover:bg-gray-800' 
-                          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-                      } disabled:opacity-50`}
-                      title={isAuthenticated ? "Record voice message" : "Sign in to use voice messages"}
-                    >
-                      <Mic className="w-5 h-5" />
-                    </button>
-                    {!isAuthenticated && (
-                      <span className={`text-xs ${isDormant ? 'text-gray-600' : 'text-gray-400'}`}>
-                        <Lock className="w-3 h-3 inline mr-1" />
-                        Voice requires login
-                      </span>
-                    )}
-                  </div>
-                  
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !question.trim()}
-                    className={`p-2 rounded-lg transition-all ${
-                      question.trim()
-                        ? isDormant
-                          ? 'bg-emerald-600 text-white hover:bg-emerald-500'
-                          : 'bg-primary-500 text-white hover:bg-primary-600'
-                        : isDormant
-                          ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Send className="w-5 h-5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
-
-          {/* Suggestions */}
-          {!isRecording && !audioUrl && (
-            <div className="mt-4 flex flex-wrap gap-2 justify-center">
-              {suggestionPrompts.map((prompt, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSuggestionClick(prompt)}
-                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                    isDormant 
-                      ? 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300 hover:bg-gray-800/50' 
-                      : 'border-gray-200 text-gray-600 hover:border-primary-300 hover:text-primary-600 hover:bg-primary-50'
-                  }`}
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-      </main>
-
-      {/* Login Modal */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className={`relative max-w-md w-full mx-4 p-8 rounded-2xl ${
-            isDormant ? 'bg-gray-900 border border-gray-800' : 'bg-white shadow-2xl'
-          }`}>
+          {/* Auth Card */}
+          <div className="bg-[#2a2a2a] rounded-xl p-6 border border-gray-800/50 shadow-xl">
+            {/* Google Sign In */}
             <button
-              onClick={() => setShowLoginModal(false)}
-              className={`absolute top-4 right-4 p-2 rounded-lg transition-colors ${
-                isDormant ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-              }`}
+              onClick={handleGoogleAuth}
+              disabled={isSubmitting || authLoading}
+              className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-white text-gray-800 font-medium rounded-lg hover:bg-gray-50 transition-all disabled:opacity-50 text-sm"
             >
-              <X className="w-5 h-5" />
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continue with Google
             </button>
-            
-            <div className="text-center mb-6">
-              <div className={`w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center ${
-                isDormant ? 'bg-emerald-900/50' : 'bg-primary-100'
-              }`}>
-                <Lock className={`w-8 h-8 ${isDormant ? 'text-emerald-400' : 'text-primary-600'}`} />
-              </div>
-              
-              <h3 className={`text-xl font-bold mb-2 ${isDormant ? 'text-gray-100' : 'text-gray-900'}`}>
-                {loginModalReason === 'audio' 
-                  ? 'Voice Messages Require Login'
-                  : 'You\'ve Used Your Free Question'
-                }
-              </h3>
-              
-              <p className={`${isDormant ? 'text-gray-400' : 'text-gray-600'}`}>
-                {loginModalReason === 'audio'
-                  ? 'Create a free account to use voice messages and unlock unlimited questions.'
-                  : 'Create a free account to continue asking unlimited questions and get matched with expert tutors.'
-                }
-              </p>
-            </div>
-            
-            <div className="space-y-3">
-              <Link
-                to="/register"
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold transition-all ${
-                  isDormant 
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-500' 
-                    : 'bg-primary-500 text-white hover:bg-primary-600'
-                }`}
-              >
-                Create Free Account
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-              
-              <Link
-                to="/login"
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium border transition-colors ${
-                  isDormant 
-                    ? 'border-gray-700 text-gray-300 hover:bg-gray-800' 
-                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                I already have an account
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Processing Modal */}
-      {showProcessingModal && processingStatus && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className={`p-8 max-w-md w-full mx-4 rounded-2xl text-center ${
-            isDormant ? 'bg-gray-900 border border-gray-800' : 'bg-white shadow-2xl'
-          }`}>
-            {/* Status Icon */}
-            <div className="mb-6">
-              {processingStatus.status === 'ALL_TUTORS_BUSY' ? (
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
-                  isDormant ? 'bg-amber-900/50' : 'bg-amber-100'
-                }`}>
-                  <AlertCircle className={`w-8 h-8 ${isDormant ? 'text-amber-400' : 'text-amber-600'}`} />
-                </div>
-              ) : processingStatus.status === 'TUTOR_ASSIGNED' ? (
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
-                  isDormant ? 'bg-emerald-900/50' : 'bg-green-100'
-                }`}>
-                  <CheckCircle className={`w-8 h-8 ${isDormant ? 'text-emerald-400' : 'text-green-600'}`} />
-                </div>
-              ) : (
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
-                  isDormant ? 'bg-emerald-900/50' : 'bg-primary-100'
-                }`}>
-                  <Loader2 className={`w-8 h-8 animate-spin ${isDormant ? 'text-emerald-400' : 'text-primary-600'}`} />
+            {/* Divider */}
+            <div className="flex items-center my-5">
+              <div className="flex-1 border-t border-gray-700"></div>
+              <span className="px-3 text-xs text-gray-500 font-medium">OR</span>
+              <div className="flex-1 border-t border-gray-700"></div>
+            </div>
+
+            {/* Email Form */}
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {mode === 'register' && (
+                <div>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    className="w-full px-3.5 py-2.5 bg-[#1c1c1c] border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-all"
+                    required
+                  />
                 </div>
               )}
-            </div>
-
-            {/* Status Message */}
-            <h3 className={`text-lg font-semibold mb-2 ${isDormant ? 'text-gray-100' : 'text-gray-900'}`}>
-              {processingStatus.status === 'RECEIVING' && 'Sending your question...'}
-              {processingStatus.status === 'TRANSCRIBING' && 'Transcribing audio...'}
-              {processingStatus.status === 'CLASSIFYING' && 'Analyzing your question...'}
-              {processingStatus.status === 'CREATING_CONVERSATION' && 'Creating conversation...'}
-              {processingStatus.status === 'NOTIFYING_TUTORS' && 'Finding tutors...'}
-              {processingStatus.status === 'WAITING_FOR_TUTOR' && 'Waiting for tutor...'}
-              {processingStatus.status === 'TUTOR_ASSIGNED' && 'Tutor found!'}
-              {processingStatus.status === 'ALL_TUTORS_BUSY' && 'All tutors are busy'}
-            </h3>
-            <p className={`mb-6 ${isDormant ? 'text-gray-400' : 'text-gray-600'}`}>
-              {processingStatus.message}
-            </p>
-
-            {/* Progress Bar */}
-            <div className={`w-full rounded-full h-2 mb-4 ${isDormant ? 'bg-gray-800' : 'bg-gray-200'}`}>
-              <div 
-                className={`h-2 rounded-full transition-all duration-500 ${
-                  processingStatus.status === 'ALL_TUTORS_BUSY' 
-                    ? 'bg-amber-500' 
-                    : processingStatus.status === 'TUTOR_ASSIGNED'
-                      ? 'bg-green-500'
-                      : isDormant ? 'bg-emerald-500' : 'bg-primary-500'
-                }`}
-                style={{ width: `${processingStatus.progress}%` }}
-              />
-            </div>
-
-            {/* Status specific content */}
-            {processingStatus.status === 'WAITING_FOR_TUTOR' && (
-              <div className={`flex items-center justify-center gap-2 text-sm ${isDormant ? 'text-gray-500' : 'text-gray-500'}`}>
-                <Clock className="w-4 h-4" />
-                <span>This usually takes a few seconds...</span>
+              
+              <div>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full px-3.5 py-2.5 bg-[#1c1c1c] border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-all"
+                  required
+                />
               </div>
-            )}
 
-            {processingStatus.status === 'ALL_TUTORS_BUSY' && (
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full px-3.5 py-2.5 bg-[#1c1c1c] border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-all pr-10"
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {mode === 'register' && (
+                <div>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm password"
+                    className="w-full px-3.5 py-2.5 bg-[#1c1c1c] border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-all"
+                    required
+                    minLength={8}
+                  />
+                </div>
+              )}
+
               <button
-                onClick={() => {
-                  setShowProcessingModal(false);
-                  if (pendingConversationRef.current) {
-                    navigate(`/conversations/${pendingConversationRef.current}`);
-                  }
-                }}
-                className={`mt-4 px-6 py-2 rounded-lg font-medium border transition-colors ${
-                  isDormant 
-                    ? 'border-gray-700 text-gray-300 hover:bg-gray-800' 
-                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
+                type="submit"
+                disabled={isSubmitting || authLoading}
+                className="w-full py-2.5 bg-amber-500 text-black font-medium rounded-lg hover:bg-amber-400 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
               >
-                Continue to chat anyway
+                {isSubmitting || authLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    {mode === 'login' ? 'Sign in' : 'Create account'}
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
-            )}
+            </form>
+
+            {/* Toggle Mode */}
+            <p className="mt-5 text-center text-gray-400 text-sm">
+              {mode === 'login' ? (
+                <>
+                  Don't have an account?{' '}
+                  <button 
+                    onClick={() => setMode('register')} 
+                    className="text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                  >
+                    Sign up
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <button 
+                    onClick={() => setMode('login')} 
+                    className="text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* Terms */}
+          <p className="mt-4 text-center text-xs text-gray-500">
+            By continuing, you acknowledge TopTutors'{' '}
+            <Link to="/privacy" className="text-amber-400/70 hover:text-amber-400">Privacy Policy</Link>
+          </p>
+        </div>
+      </div>
+
+      {/* Right Side - Hero Image */}
+      <div className="hidden lg:flex flex-1 items-center justify-center p-6 relative overflow-hidden">
+        {/* Background - solid color instead of gradient */}
+        <div className="absolute inset-0 bg-[#c4956a]" />
+        
+        {/* Decorative elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          {/* Floating code/math symbols */}
+          <div className="absolute top-16 left-16 text-3xl font-mono text-white/15">∑</div>
+          <div className="absolute top-32 right-24 text-2xl font-mono text-white/10">∫</div>
+          <div className="absolute bottom-32 left-24 text-xl font-mono text-white/15">π</div>
+          <div className="absolute top-48 left-1/2 text-lg font-mono text-white/10">{'<>'}</div>
+          <div className="absolute bottom-48 right-16 text-2xl font-mono text-white/15">λ</div>
+        </div>
+
+        {/* Main illustration */}
+        <div className="relative z-10 w-full max-w-md">
+          {/* Stacked cards/books effect */}
+          <div className="relative">
+            {/* Bottom card */}
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-64 h-20 bg-[#8b5a2b] rounded-lg shadow-xl transform rotate-1" />
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-56 h-16 bg-[#6d4c41] rounded-lg shadow-lg transform -rotate-1" />
+            
+            {/* Person illustration - stylized */}
+            <div className="relative flex justify-center pb-16">
+              <div className="w-40 h-56 relative">
+                {/* Head */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-20 bg-[#d4a574] rounded-full shadow" />
+                {/* Hair */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-18 h-12 bg-[#3d2914] rounded-t-full" style={{ width: '72px' }} />
+                {/* Shirt */}
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 w-28 h-36 bg-[#6d9b35] rounded-t-3xl shadow" />
+                {/* Arms suggestion */}
+                <div className="absolute top-24 left-0 w-5 h-20 bg-[#5a8830] rounded-full transform -rotate-12" />
+                <div className="absolute top-24 right-0 w-5 h-20 bg-[#5a8830] rounded-full transform rotate-12" />
+              </div>
+            </div>
           </div>
         </div>
-      )}
+
+        {/* Feature highlights */}
+        <div className="absolute bottom-8 left-8 right-8 flex justify-between text-white/70 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center">
+              <span className="text-sm">🎯</span>
+            </div>
+            <span className="font-medium">Personalized</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center">
+              <span className="text-sm">⚡</span>
+            </div>
+            <span className="font-medium">Instant Help</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center">
+              <span className="text-sm">🏆</span>
+            </div>
+            <span className="font-medium">Track Progress</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

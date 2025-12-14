@@ -16,10 +16,10 @@ export { default as AdminUsers } from './admin/AdminUsers';
 export { default as AdminConversations } from './admin/AdminConversations';
 
 // Shared Pages
-export { default as AskQuestion } from './AskQuestion';
 export { default as Conversations } from './Conversations';
 export { default as Chat } from './Chat';
 export { default as Profile } from './Profile';
+export { default as SharedConversation } from './SharedConversation';
 
 // Error Pages
 export { default as NotFound } from './errors/NotFound';

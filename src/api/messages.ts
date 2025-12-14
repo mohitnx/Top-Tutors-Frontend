@@ -246,6 +246,105 @@ export const messagesApi = {
     );
     return response.data;
   },
+
+  // =====================
+  // Message Reactions API
+  // =====================
+
+  // Add/toggle reaction on a message
+  addReaction: async (messageId: string, type: 'LIKE' | 'DISLIKE'): Promise<ApiResponse<{
+    added?: boolean;
+    updated?: boolean;
+    removed?: boolean;
+    type: 'LIKE' | 'DISLIKE';
+    reaction?: {
+      id: string;
+      messageId: string;
+      userId: string;
+      type: 'LIKE' | 'DISLIKE';
+      createdAt: string;
+    };
+  }>> => {
+    const response = await api.post(`/messages/messages/${messageId}/reactions`, { type });
+    return response.data;
+  },
+
+  // Remove reaction from a message
+  removeReaction: async (messageId: string): Promise<ApiResponse<{ success: boolean }>> => {
+    const response = await api.delete(`/messages/messages/${messageId}/reactions`);
+    return response.data;
+  },
+
+  // Get reaction summary for a message
+  getReactionSummary: async (messageId: string): Promise<ApiResponse<{
+    messageId: string;
+    likeCount: number;
+    dislikeCount: number;
+    userReaction: 'LIKE' | 'DISLIKE' | null;
+  }>> => {
+    const response = await api.get(`/messages/messages/${messageId}/reactions`);
+    return response.data;
+  },
+
+  // ==========================
+  // Conversation Sharing API
+  // ==========================
+
+  // Share a conversation
+  shareConversation: async (conversationId: string): Promise<ApiResponse<{
+    conversationId: string;
+    isShared: boolean;
+    shareToken: string;
+    shareUrl: string;
+    sharedAt: string;
+  }>> => {
+    const response = await api.post(`/messages/conversations/${conversationId}/share`);
+    return response.data;
+  },
+
+  // Stop sharing a conversation
+  unshareConversation: async (conversationId: string): Promise<ApiResponse<{
+    conversationId: string;
+    isShared: boolean;
+  }>> => {
+    const response = await api.delete(`/messages/conversations/${conversationId}/share`);
+    return response.data;
+  },
+
+  // Get share status for a conversation
+  getShareStatus: async (conversationId: string): Promise<ApiResponse<{
+    conversationId: string;
+    isShared: boolean;
+    shareToken: string | null;
+    shareUrl: string | null;
+    sharedAt: string | null;
+  }>> => {
+    const response = await api.get(`/messages/conversations/${conversationId}/share`);
+    return response.data;
+  },
+
+  // View a shared conversation
+  getSharedConversation: async (shareToken: string): Promise<ApiResponse<{
+    id: string;
+    subject: string;
+    topic?: string;
+    studentName: string;
+    tutorName?: string;
+    status: string;
+    createdAt: string;
+    messages: Array<{
+      id: string;
+      senderType: 'STUDENT' | 'TUTOR' | 'SYSTEM';
+      content?: string;
+      messageType: string;
+      likeCount: number;
+      dislikeCount: number;
+      createdAt: string;
+    }>;
+  }>> => {
+    const response = await api.get(`/messages/shared/${shareToken}`);
+    return response.data;
+  },
 };
 
 export default messagesApi;

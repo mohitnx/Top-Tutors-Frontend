@@ -73,7 +73,8 @@ export interface AuthResponse {
   tokens: Tokens;
 }
 
-export interface TutorProfile {
+// Legacy profile types for conversations
+export interface TutorProfileBasic {
   id: string;
   user: {
     name: string;
@@ -81,12 +82,147 @@ export interface TutorProfile {
   };
 }
 
-export interface StudentProfile {
+export interface StudentProfileBasic {
   id: string;
   user: {
     name: string;
     email: string;
   };
+}
+
+// Full Student Profile
+export interface StudentProfile {
+  id: string;
+  userId: string;
+  name?: string;
+  email?: string;
+  avatar?: string;
+  grade?: string;
+  school?: string;
+  phoneNumber?: string;
+  dateOfBirth?: string;
+  parentName?: string;
+  parentEmail?: string;
+  parentPhone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  timezone?: string;
+  preferredSubjects?: Subject[];
+  learningGoals?: string;
+  academicLevel?: string;
+  profileCompleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+  // Gamification stats (computed)
+  totalQuestions?: number;
+  totalSessions?: number;
+  currentStreak?: number;
+  longestStreak?: number;
+  totalHoursLearned?: number;
+}
+
+// Academic Qualification
+export interface AcademicQualification {
+  institution: string;
+  degree: string;
+  field: string;
+  year?: number;
+  gpa?: string;
+}
+
+// Certificate
+export interface Certificate {
+  id?: string;
+  name: string;
+  issuedBy: string;
+  issuedDate?: string;
+  expiryDate?: string;
+  url?: string;
+  verified?: boolean;
+}
+
+// Work Experience
+export type ExperienceType = 'WORK' | 'RESEARCH' | 'TEACHING' | 'INTERNSHIP' | 'VOLUNTEER';
+
+export interface WorkExperience {
+  company: string;
+  role: string;
+  startDate?: string;
+  endDate?: string;
+  description?: string;
+  type?: ExperienceType;
+}
+
+// Availability Schedule
+export interface DaySchedule {
+  start: string;
+  end: string;
+}
+
+export interface AvailabilitySchedule {
+  monday?: DaySchedule[];
+  tuesday?: DaySchedule[];
+  wednesday?: DaySchedule[];
+  thursday?: DaySchedule[];
+  friday?: DaySchedule[];
+  saturday?: DaySchedule[];
+  sunday?: DaySchedule[];
+}
+
+// Teaching Style
+export type TeachingStyle = 'Interactive' | 'Lecture-based' | 'Project-based' | 'Discussion-based' | 'Hands-on' | 'Mixed';
+
+// Academic Level
+export type AcademicLevel = 'Elementary' | 'Middle School' | 'High School' | 'Undergraduate' | 'Graduate' | 'Professional';
+
+// Full Tutor Profile
+export interface TutorProfile {
+  id: string;
+  userId: string;
+  name?: string;
+  email?: string;
+  avatar?: string;
+  bio?: string;
+  phoneNumber?: string;
+  dateOfBirth?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  timezone?: string;
+  qualification?: string;
+  academicQualifications?: AcademicQualification[];
+  experience?: number;
+  hourlyRate?: number;
+  subjects?: Subject[];
+  areasOfExpertise?: string;
+  teachingPhilosophy?: string;
+  teachingStyle?: TeachingStyle;
+  certificates?: Certificate[];
+  workExperience?: WorkExperience[];
+  researchExperience?: string;
+  publications?: string;
+  linkedinUrl?: string;
+  websiteUrl?: string;
+  languages?: string[];
+  isAvailable: boolean;
+  isBusy: boolean;
+  availabilitySchedule?: AvailabilitySchedule;
+  rating?: number;
+  totalReviews: number;
+  totalStudentsTaught: number;
+  totalSessionsCompleted: number;
+  totalHoursTaught: number;
+  isVerified: boolean;
+  verifiedAt?: string;
+  profileCompleted: boolean;
+  bankAccountNumber?: string;
+  bankName?: string;
+  bankRoutingNumber?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // Call event types for system messages
@@ -107,6 +243,9 @@ export interface Attachment {
   size: number;
 }
 
+// Reaction type
+export type ReactionType = 'LIKE' | 'DISLIKE';
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -123,6 +262,10 @@ export interface Message {
   // Call system message fields
   isSystemMessage?: boolean;
   callEvent?: CallEvent;
+  // Reaction fields
+  likeCount?: number;
+  dislikeCount?: number;
+  userReaction?: ReactionType | null;
 }
 
 // Call log for history
@@ -155,8 +298,8 @@ export interface Conversation {
   keywords: string[];
   urgency: Urgency;
   status: ConversationStatus;
-  student?: StudentProfile;
-  tutor?: TutorProfile;
+  student?: StudentProfileBasic;
+  tutor?: TutorProfileBasic;
   messages: Message[];
   createdAt: string;
   updatedAt: string;

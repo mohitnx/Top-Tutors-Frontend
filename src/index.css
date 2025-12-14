@@ -511,3 +511,90 @@ input[type="range"]::-moz-range-track {
 .animate-pulse-subtle {
   animation: pulse-subtle 2s ease-in-out infinite;
 }
+
+/* Dark theme for Claude-like UI */
+.dark-theme {
+  --bg-primary: #212121;
+  --bg-secondary: #1c1c1c;
+  --bg-tertiary: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #e8dcc4;
+  --text-muted: #9ca3af;
+  --border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Claude-style input focus */
+.input-claude {
+  @apply bg-[#1c1c1c] border border-gray-700 rounded-xl text-white placeholder-gray-500;
+  transition: all 0.2s ease;
+}
+
+.input-claude:focus {
+  @apply border-amber-500/50 ring-2 ring-amber-500/20 outline-none;
+}
+
+/* Claude-style button */
+.btn-claude {
+  @apply px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold rounded-xl;
+  transition: all 0.2s ease;
+}
+
+.btn-claude:hover {
+  @apply from-amber-600 to-orange-600;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3);
+}
+
+/* Shimmer loading effect for dark theme */
+.skeleton-dark {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+}
+
+/* Glassmorphism for dark theme */
+.glass-dark {
+  background: rgba(30, 30, 30, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Glow effects */
+.glow-amber {
+  box-shadow: 0 0 40px rgba(245, 158, 11, 0.15);
+}
+
+.glow-blue {
+  box-shadow: 0 0 40px rgba(59, 130, 246, 0.15);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+}
+
+/* Text gradient */
+.text-gradient-amber {
+  background: linear-gradient(135deg, #f59e0b, #ea580c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Scrollbar for dark theme */
+.dark-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark-scrollbar::-webkit-scrollbar-track {
+  background: #1c1c1c;
+}
+
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}

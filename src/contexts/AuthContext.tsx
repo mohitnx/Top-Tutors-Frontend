@@ -13,6 +13,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   setAuthFromCallback: (accessToken: string, refreshToken: string) => Promise<void>;
   hasRole: (roles: Role | Role[]) => boolean;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -145,6 +146,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return roleArray.includes(user.role);
   }, [user]);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await authApi.getProfile();
+      setUser(response.data);
+      localStorage.setItem('user', JSON.stringify(response.data));
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -156,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         setAuthFromCallback,
         hasRole,
+        refreshUser,
       }}
     >
       {children}
