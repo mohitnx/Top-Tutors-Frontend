@@ -449,6 +449,11 @@ h1, h2, h3, h4, h5, h6 {
   -webkit-backdrop-filter: blur(10px);
 }
 
+/* Radial gradient */
+.bg-gradient-radial {
+  background: radial-gradient(circle, var(--tw-gradient-stops));
+}
+
 /* Audio range input styling */
 input[type="range"] {
   -webkit-appearance: none;

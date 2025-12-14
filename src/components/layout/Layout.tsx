@@ -59,8 +59,7 @@ export function AuthLayout() {
 
 export function PublicLayout() {
   return (
-    <div className="min-h-screen bg-white">
-      <Navbar />
+    <div className="min-h-screen">
       <main>
         <Outlet />
       </main>
