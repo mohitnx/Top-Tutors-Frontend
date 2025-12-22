@@ -645,5 +645,65 @@ export interface WaitingQueueStatusResponse {
   error?: string;
 }
 
+// ============================================
+// Session Cancel/Close Types (Student Side)
+// ============================================
+
+// Reason types for cancelling a waiting session
+export type SessionCancelReason = 
+  | 'TUTOR_NOT_UP_TO_MARK'
+  | 'NO_TUTOR_ASSIGNED'
+  | 'OTHER';
+
+// Cancel waiting session request
+export interface CancelWaitingSessionRequest {
+  conversationId: string;
+  reason?: SessionCancelReason;
+  reasonDetails?: string; // For 'OTHER' reason - optional text
+}
+
+// Cancel waiting session response
+export interface CancelWaitingSessionResponse {
+  success: boolean;
+  message: string;
+  conversationId: string;
+  status: 'CANCELLED' | 'CLOSED';
+}
+
+// ============================================
+// Session Close/Resolve Types
+// ============================================
+
+// Close conversation request (socket emit)
+export interface CloseConversationRequest {
+  conversationId: string;
+  status: 'RESOLVED' | 'CLOSED';
+}
+
+// Close conversation response (socket callback)
+export interface CloseConversationSocketResponse {
+  success: boolean;
+  status?: 'RESOLVED' | 'CLOSED';
+  error?: string;
+}
+
+// Conversation closed event - sent to BOTH parties
+export interface ConversationClosedEvent {
+  conversationId: string;
+  status: 'RESOLVED' | 'CLOSED';
+  closedBy: {
+    id: string;
+    role: 'STUDENT' | 'TUTOR';
+    name?: string;
+  };
+  conversation: {
+    id: string;
+    subject: string;
+    topic: string;
+    status: string;
+  };
+  closedAt: string; // ISO timestamp
+}
+
 
 

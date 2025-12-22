@@ -1,12 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Lightbulb, ArrowLeft, Mic, Paperclip, X, Loader2, Play, Pause, Trash2, CheckCircle, Clock, AlertCircle, Users } from 'lucide-react';
+import { Send, Lightbulb, ArrowLeft, Mic, Paperclip, X, Loader2, Play, Pause, Trash2, CheckCircle, Clock, AlertCircle, Users, XCircle } from 'lucide-react';
 import { messagesApi } from '../api';
 import { MessageType, ProcessingStatusEvent, TutorAssignedEvent, AllTutorsBusyEvent, TutorAvailabilityUpdate, TutorAcceptedEvent } from '../types';
 import Button from '../components/ui/Button';
 import { Textarea } from '../components/ui/Input';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { useStudentNotifications } from '../hooks/useSocket';
+import { joinConversation, leaveConversation } from '../services/socket';
+import { CancelSessionModal } from '../components/queue';
 import toast from 'react-hot-toast';
 
 const questionTips = [
@@ -45,6 +47,13 @@ export function AskQuestion() {
     tutorResponses?: Array<{ tutorName: string; minutesUntilFree: number }>;
   } | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  
+  // Track how long student has been waiting (in seconds)
+  const [waitingDuration, setWaitingDuration] = useState(0);
+  const waitingStartTimeRef = useRef<Date | null>(null);
+  
+  // Cancel session modal
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const {
     isRecording,
@@ -151,6 +160,66 @@ export function AskQuestion() {
     return () => clearInterval(interval);
   }, [countdownSeconds]);
 
+  // Track how long student has been waiting
+  useEffect(() => {
+    if (!showProcessingModal) {
+      // Reset when modal closes
+      setWaitingDuration(0);
+      waitingStartTimeRef.current = null;
+      return;
+    }
+
+    // Start timer when modal opens
+    if (!waitingStartTimeRef.current) {
+      waitingStartTimeRef.current = new Date();
+    }
+
+    const interval = setInterval(() => {
+      if (waitingStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - waitingStartTimeRef.current.getTime()) / 1000);
+        setWaitingDuration(elapsed);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showProcessingModal]);
+
+  // Handle session cancelled
+  const handleSessionCancelled = useCallback(() => {
+    // Leave conversation room if we were in one
+    if (pendingConversationRef.current) {
+      leaveConversation(pendingConversationRef.current);
+    }
+    
+    setShowCancelModal(false);
+    setShowProcessingModal(false);
+    setIsSubmitting(false);
+    setProcessingStatus(null);
+    setWaitingQueueInfo(null);
+    setCountdownSeconds(null);
+    setWaitingDuration(0);
+    waitingStartTimeRef.current = null;
+    pendingConversationRef.current = null;
+    navigate('/dashboard');
+  }, [navigate]);
+
+  // Format waiting duration for display
+  const formatWaitingDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins === 0) return `${secs}s`;
+    return `${mins}m ${secs}s`;
+  };
+
+  // Cleanup on unmount - leave conversation room if we were in one
+  useEffect(() => {
+    return () => {
+      if (pendingConversationRef.current) {
+        leaveConversation(pendingConversationRef.current);
+      }
+    };
+  }, []);
+
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -179,6 +248,9 @@ export function AskQuestion() {
       });
 
       pendingConversationRef.current = response.data.conversation.id;
+      
+      // Join conversation room to receive socket updates
+      joinConversation(response.data.conversation.id);
 
       // If conversation already has a tutor, navigate immediately
       if (response.data.conversation.tutor) {
@@ -188,19 +260,13 @@ export function AskQuestion() {
         navigate(`/conversations/${response.data.conversation.id}`);
       } else {
         // Wait for tutor assignment via WebSocket
+        // Keep modal open - student can choose to cancel or wait
         setProcessingStatus({
           status: 'WAITING_FOR_TUTOR',
           message: 'Waiting for an available tutor...',
           progress: 80,
         });
-        
-        // Set a timeout to navigate anyway after 10 seconds
-        setTimeout(() => {
-          if (pendingConversationRef.current) {
-            setShowProcessingModal(false);
-            navigate(`/conversations/${pendingConversationRef.current}`);
-          }
-        }, 10000);
+        // Don't auto-navigate - let the student decide to wait or cancel
       }
     } catch (error: unknown) {
       console.error('Failed to send question:', error);
@@ -251,10 +317,13 @@ export function AskQuestion() {
       );
 
       pendingConversationRef.current = response.data.conversation.id;
+      
+      // Join conversation room to receive socket updates
+      joinConversation(response.data.conversation.id);
 
       // Show classification info
       if (response.data.classification) {
-        const { subject, topic, transcription } = response.data.classification;
+        const { subject, topic } = response.data.classification;
         setProcessingStatus({
           status: 'CLASSIFYING',
           message: `Detected: ${subject.replace('_', ' ')}${topic ? ` - ${topic}` : ''}`,
@@ -270,19 +339,13 @@ export function AskQuestion() {
         navigate(`/conversations/${response.data.conversation.id}`);
       } else {
         // Wait for tutor assignment via WebSocket
+        // Keep modal open - student can choose to cancel or wait
         setProcessingStatus({
           status: 'WAITING_FOR_TUTOR',
           message: 'Finding the best tutor for you...',
           progress: 85,
         });
-        
-        // Set a timeout to navigate anyway after 10 seconds
-        setTimeout(() => {
-          if (pendingConversationRef.current) {
-            setShowProcessingModal(false);
-            navigate(`/conversations/${pendingConversationRef.current}`);
-          }
-        }, 10000);
+        // Don't auto-navigate - let the student decide to wait or cancel
       }
     } catch (error: unknown) {
       console.error('Failed to send audio:', error);
@@ -643,17 +706,24 @@ export function AskQuestion() {
 
             {/* Status specific content */}
             {processingStatus.status === 'WAITING_FOR_TUTOR' && (
-              <div className="space-y-3">
+              <div className="space-y-4">
+                {/* How long you've been waiting */}
+                <div className="flex items-center justify-center gap-2 text-sm text-gray-500 bg-gray-50 py-2 rounded-lg">
+                  <Clock className="w-4 h-4" />
+                  <span>You've been waiting: <strong className="text-gray-700">{formatWaitingDuration(waitingDuration)}</strong></span>
+                </div>
+
                 {waitingQueueInfo?.shortestWaitMinutes && countdownSeconds !== null && countdownSeconds > 0 ? (
                   <>
-                    {/* Countdown Timer */}
-                    <div className="flex items-center justify-center gap-3 py-3 bg-gray-50 rounded-lg">
-                      <Clock className="w-5 h-5 text-primary-500" />
-                      <div className="text-center">
-                        <div className="text-2xl font-mono font-bold text-primary-600">
-                          {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
+                    {/* Estimated time until tutor available */}
+                    <div className="bg-primary-50 border border-primary-100 rounded-lg p-4">
+                      <div className="flex items-center justify-center gap-3">
+                        <div className="text-center">
+                          <p className="text-sm text-primary-700 mb-1">A tutor will be available in</p>
+                          <div className="text-3xl font-mono font-bold text-primary-600">
+                            {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500">Estimated wait time</div>
                       </div>
                     </div>
                     
@@ -674,32 +744,119 @@ export function AskQuestion() {
                         </div>
                       </div>
                     )}
+
+                    {/* Wait or Cancel options */}
+                    <div className="border-t border-gray-100 pt-4">
+                      <p className="text-sm text-gray-600 mb-3">Would you like to wait?</p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setShowCancelModal(true)}
+                          className="flex-1"
+                          leftIcon={<XCircle className="w-4 h-4" />}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => {
+                            setShowProcessingModal(false);
+                            if (pendingConversationRef.current) {
+                              navigate(`/conversations/${pendingConversationRef.current}`);
+                            }
+                          }}
+                        >
+                          Go to Chat
+                        </Button>
+                      </div>
+                    </div>
                   </>
                 ) : (
-                  <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                    <Clock className="w-4 h-4" />
-                    <span>Finding available tutors...</span>
-                  </div>
+                  <>
+                    {/* Still searching for tutors */}
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Finding available tutors...</span>
+                    </div>
+                    
+                    {/* Action buttons - always visible */}
+                    <div className="border-t border-gray-100 pt-4">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setShowCancelModal(true)}
+                          className="flex-1"
+                          leftIcon={<XCircle className="w-4 h-4" />}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => {
+                            setShowProcessingModal(false);
+                            if (pendingConversationRef.current) {
+                              navigate(`/conversations/${pendingConversationRef.current}`);
+                            }
+                          }}
+                        >
+                          Go to Chat
+                        </Button>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
 
             {processingStatus.status === 'ALL_TUTORS_BUSY' && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setShowProcessingModal(false);
-                  if (pendingConversationRef.current) {
-                    navigate(`/conversations/${pendingConversationRef.current}`);
-                  }
-                }}
-                className="mt-4"
-              >
-                Continue to chat anyway
-              </Button>
+              <div className="space-y-3 mt-4">
+                {/* How long you've been waiting */}
+                <div className="flex items-center justify-center gap-2 text-sm text-amber-600 bg-amber-50 py-2 rounded-lg">
+                  <Clock className="w-4 h-4" />
+                  <span>Waited: <strong>{formatWaitingDuration(waitingDuration)}</strong></span>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowCancelModal(true)}
+                    className="flex-1"
+                  >
+                    <XCircle className="w-4 h-4 mr-1" />
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setShowProcessingModal(false);
+                      if (pendingConversationRef.current) {
+                        navigate(`/conversations/${pendingConversationRef.current}`);
+                      }
+                    }}
+                    className="flex-1"
+                  >
+                    Continue Anyway
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         </div>
+      )}
+
+      {/* Cancel Session Modal */}
+      {showCancelModal && pendingConversationRef.current && (
+        <CancelSessionModal
+          conversationId={pendingConversationRef.current}
+          onClose={() => setShowCancelModal(false)}
+          onCancelled={handleSessionCancelled}
+        />
       )}
     </div>
   );

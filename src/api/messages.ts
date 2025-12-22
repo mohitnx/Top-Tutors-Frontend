@@ -7,7 +7,9 @@ import {
   MessageType,
   ConversationStatus,
   CallLog,
-  Attachment
+  Attachment,
+  SessionCancelReason,
+  CancelWaitingSessionResponse,
 } from '../types';
 
 export interface SendMessageData {
@@ -343,6 +345,23 @@ export const messagesApi = {
     }>;
   }>> => {
     const response = await api.get(`/messages/shared/${shareToken}`);
+    return response.data;
+  },
+
+  // ==========================
+  // Waiting Queue API
+  // ==========================
+
+  // Cancel a waiting session (student side)
+  cancelWaitingSession: async (
+    conversationId: string,
+    reason?: SessionCancelReason,
+    reasonDetails?: string
+  ): Promise<ApiResponse<CancelWaitingSessionResponse>> => {
+    const response = await api.post<ApiResponse<CancelWaitingSessionResponse>>(
+      `/messages/conversations/${conversationId}/cancel`,
+      { reason, reasonDetails }
+    );
     return response.data;
   },
 };

@@ -33,6 +33,10 @@ import {
   TutorAcceptedEvent,
   GetWaitingQueueStatusRequest,
   WaitingQueueStatusResponse,
+  // Close/Resolve Session Types
+  CloseConversationRequest,
+  CloseConversationSocketResponse,
+  ConversationClosedEvent,
 } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
@@ -471,6 +475,33 @@ export const getWaitingQueueStatus = (
   }
 };
 
+// ============================================
+// Close/Resolve Session Functions
+// ============================================
+
+// Close/Resolve a conversation via socket
+export const closeConversation = (
+  data: CloseConversationRequest,
+  callback?: (response: CloseConversationSocketResponse) => void
+): void => {
+  if (socket?.connected) {
+    console.log('[Socket] Closing conversation:', data);
+    socket.emit('closeConversation', data, callback);
+  } else {
+    console.error('[Socket] Cannot close - socket not connected');
+    callback?.({ success: false, error: 'Socket not connected' });
+  }
+};
+
+// Listen for conversation closed event (both parties receive this)
+export const onConversationClosed = (callback: (data: ConversationClosedEvent) => void): void => {
+  socket?.on('conversationClosed', callback);
+};
+
+export const offConversationClosed = (): void => {
+  socket?.off('conversationClosed');
+};
+
 export default {
   connectSocket,
   disconnectSocket,
@@ -546,5 +577,9 @@ export default {
   onTutorAccepted,
   offTutorAccepted,
   getWaitingQueueStatus,
+  // Close/Resolve Session
+  closeConversation,
+  onConversationClosed,
+  offConversationClosed,
 };
 

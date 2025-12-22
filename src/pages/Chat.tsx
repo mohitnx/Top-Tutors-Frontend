@@ -4,8 +4,8 @@ import { ArrowLeft, CheckCircle, X, Clock, Loader2, Settings, Share2, Copy, Chec
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi } from '../api';
 import { useConversationSocket } from '../hooks/useSocket';
-import { getSocket, onSocketConnect } from '../services/socket';
-import { Conversation, Message, MessageType, Role, ConversationStatus, CallStatus, StatusChangeEvent, SenderType, TutorAssignedEvent, ReactionType } from '../types';
+import { getSocket, onSocketConnect, closeConversation as socketCloseConversation } from '../services/socket';
+import { Conversation, Message, MessageType, Role, ConversationStatus, CallStatus, StatusChangeEvent, SenderType, TutorAssignedEvent, ReactionType, ConversationClosedEvent } from '../types';
 import { MessageBubble, MessageInput, TypingIndicator } from '../components/chat/index';
 import { SubjectBadge, StatusBadge } from '../components/ui/Badge';
 import Avatar from '../components/ui/Avatar';
@@ -109,7 +109,7 @@ export function Chat() {
     onTyping: handleTyping,
   });
 
-  // Listen for status changes
+  // Listen for status changes and conversation closed events
   useEffect(() => {
     const handleStatusChange = (data: StatusChangeEvent) => {
       if (data.conversationId === conversationId) {
@@ -123,6 +123,51 @@ export function Chat() {
         if (statusMessages[data.status]) {
           toast(statusMessages[data.status], { icon: '✅' });
         }
+      }
+    };
+
+    const handleConversationClosed = (data: ConversationClosedEvent) => {
+      if (data.conversationId === conversationId) {
+        // Update conversation status
+        setConversation(prev => prev ? { ...prev, status: data.status as ConversationStatus } : prev);
+        
+        // Show notification about who closed it
+        const closerRole = data.closedBy.role === 'TUTOR' ? 'Tutor' : 'Student';
+        const closerName = data.closedBy.name || closerRole;
+        
+        toast.custom((t) => (
+          <div
+            className={`${
+              t.visible ? 'animate-enter' : 'animate-leave'
+            } max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto overflow-hidden`}
+            style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
+          >
+            <div className={`h-1 bg-gradient-to-r ${
+              data.status === 'RESOLVED' 
+                ? 'from-emerald-400 to-teal-500' 
+                : 'from-gray-400 to-gray-500'
+            }`} />
+            <div className="p-4">
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0 ${
+                  data.status === 'RESOLVED'
+                    ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                    : 'bg-gradient-to-br from-gray-400 to-gray-500'
+                }`}>
+                  {data.status === 'RESOLVED' ? <CheckCircle className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">
+                    Session {data.status === 'RESOLVED' ? 'Resolved' : 'Closed'}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-0.5">
+                    This session was {data.status.toLowerCase()} by {closerName}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ), { duration: 5000, position: 'top-center' });
       }
     };
 
@@ -140,6 +185,7 @@ export function Chat() {
       if (!socket) return;
       socket.on('statusChange', handleStatusChange);
       socket.on('tutorAssigned', handleTutorAssigned);
+      socket.on('conversationClosed', handleConversationClosed);
     };
 
     setupListener();
@@ -150,6 +196,7 @@ export function Chat() {
       if (socket) {
         socket.off('statusChange', handleStatusChange);
         socket.off('tutorAssigned', handleTutorAssigned);
+        socket.off('conversationClosed', handleConversationClosed);
       }
       unsubscribe();
     };
