@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { User, Role } from '../types';
 import { authApi } from '../api';
 import { connectSocket, disconnectSocket } from '../services/socket';
+import { connectGeminiSocket, disconnectGeminiSocket } from '../services/geminiSocket';
 import toast from 'react-hot-toast';
 
 interface AuthContextType {
@@ -37,8 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const response = await authApi.getProfile();
           setUser(response.data);
           localStorage.setItem('user', JSON.stringify(response.data));
-          // Connect WebSocket
+          // Connect WebSockets
           connectSocket(token);
+          connectGeminiSocket(token);
         } catch {
           // Token invalid, clear storage
           localStorage.removeItem('accessToken');
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       disconnectSocket();
+      disconnectGeminiSocket();
     };
   }, []);
 
@@ -69,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       setUser(userData);
       connectSocket(tokens.accessToken);
+      connectGeminiSocket(tokens.accessToken);
       toast.success('Welcome back!');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
@@ -92,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       setUser(userData);
       connectSocket(tokens.accessToken);
+      connectGeminiSocket(tokens.accessToken);
       toast.success('Account created successfully!');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string | string[] } } };
@@ -112,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     
     disconnectSocket();
+    disconnectGeminiSocket();
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
@@ -129,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('user', JSON.stringify(response.data));
       setUser(response.data);
       connectSocket(accessToken);
+      connectGeminiSocket(accessToken);
       toast.success('Welcome!');
     } catch (error) {
       localStorage.removeItem('accessToken');

@@ -705,5 +705,123 @@ export interface ConversationClosedEvent {
   closedAt: string; // ISO timestamp
 }
 
+// ============================================
+// AI Chat (Gemini) Types
+// ============================================
 
+// AI Chat Session
+export interface AIChatSession {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  subject: Subject | null;
+  isPinned: boolean;
+  isArchived: boolean;
+  lastMessageAt: string;
+  createdAt: string;
+  tutorRequestStatus: TutorRequestStatus | null;
+  linkedConversationId: string | null;
+  messageCount: number;
+  lastMessage?: {
+    content: string;
+    role: 'USER' | 'ASSISTANT';
+    createdAt: string;
+  };
+}
+
+// Tutor Request Status
+export type TutorRequestStatus = 
+  | 'NONE'
+  | 'REQUESTED'
+  | 'TUTOR_NOTIFIED'
+  | 'TUTOR_COMING'
+  | 'TUTOR_CONNECTED'
+  | 'CANCELLED';
+
+// AI Message
+export interface AIMessage {
+  id: string;
+  sessionId: string;
+  role: 'USER' | 'ASSISTANT';
+  content: string;
+  attachments: AIAttachment[] | null;
+  audioUrl: string | null;
+  transcription: string | null;
+  isStreaming: boolean;
+  isComplete: boolean;
+  hasError: boolean;
+  errorMessage: string | null;
+  feedback: 'GOOD' | 'BAD' | null;
+  createdAt: string;
+}
+
+// AI Attachment
+export interface AIAttachment {
+  id: string;
+  url: string;
+  name: string;
+  type: string;
+  size: number;
+}
+
+// Stream Chunk Types
+export type StreamChunkType = 'start' | 'chunk' | 'end' | 'error';
+
+export interface StreamChunk {
+  type: StreamChunkType;
+  messageId: string;
+  sessionId: string;
+  content?: string;
+  fullContent?: string;
+  error?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+  };
+}
+
+// Tutor Request
+export interface TutorRequestResponse {
+  success: boolean;
+  status: TutorRequestStatus;
+  linkedConversationId?: string;
+}
+
+export interface TutorStatusResponse {
+  status: TutorRequestStatus;
+  tutorInfo?: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  conversationId?: string;
+  estimatedWait?: string;
+}
+
+// Tutor Status Update Events
+export interface TutorStatusUpdateEvent {
+  sessionId: string;
+  status: TutorRequestStatus;
+  message: string;
+}
+
+export interface TutorConnectedEvent {
+  sessionId: string;
+  tutorInfo: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  conversationId: string;
+  message: string;
+}
+
+export interface TutorWaitUpdateEvent {
+  sessionId: string;
+  estimatedWait: string;
+  message: string;
+}
+
+// AI Chat Urgency
+export type AIUrgency = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 

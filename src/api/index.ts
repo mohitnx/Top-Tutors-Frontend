@@ -3,6 +3,7 @@ export { authApi } from './auth';
 export { usersApi } from './users';
 export { messagesApi } from './messages';
 export { studentProfileApi, tutorProfileApi, profileApi } from './profiles';
+export { geminiChatApi } from './geminiChat';
 
 
 
