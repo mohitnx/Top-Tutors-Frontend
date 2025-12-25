@@ -27,7 +27,7 @@ export const connectGeminiSocket = (token: string): Socket => {
 
   geminiSocket = io(`${WS_URL}/gemini-chat`, {
     auth: { token },
-    transports: ['websocket', 'polling'],
+    transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 1000,
@@ -205,6 +205,34 @@ export const offTutorWaitUpdate = (callback?: (data: TutorWaitUpdateEvent) => vo
 };
 
 // ============================================
+// Tutor Session Events
+// ============================================
+
+export const onTutorAccepted = (callback: (data: any) => void): void => {
+  geminiSocket?.on('tutorAccepted', callback);
+};
+
+export const offTutorAccepted = (callback?: (data: any) => void): void => {
+  if (callback) {
+    geminiSocket?.off('tutorAccepted', callback);
+  } else {
+    geminiSocket?.off('tutorAccepted');
+  }
+};
+
+export const onSessionStatusChanged = (callback: (data: any) => void): void => {
+  geminiSocket?.on('sessionStatusChanged', callback);
+};
+
+export const offSessionStatusChanged = (callback?: (data: any) => void): void => {
+  if (callback) {
+    geminiSocket?.off('sessionStatusChanged', callback);
+  } else {
+    geminiSocket?.off('sessionStatusChanged');
+  }
+};
+
+// ============================================
 // Export Default
 // ============================================
 
@@ -226,5 +254,9 @@ export default {
   offTutorConnected,
   onTutorWaitUpdate,
   offTutorWaitUpdate,
+  onTutorAccepted,
+  offTutorAccepted,
+  onSessionStatusChanged,
+  offSessionStatusChanged,
 };
 

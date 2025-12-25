@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   MessageSquare, Clock, CheckCircle, Bell, AlertCircle, UserPlus, X, 
-  Lock, Unlock, ChevronRight, Sparkles
+  Lock, Unlock, ChevronRight, Sparkles, BookOpen
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesApi } from '../../api';
-import { Conversation, ConversationStatus, SessionTakenEvent, ConversationTakenEvent } from '../../types';
+import { Conversation, ConversationStatus, SessionTakenEvent, ConversationTakenEvent, AcceptSessionResponse } from '../../types';
 import { 
   rejectConversation as socketRejectConversation,
   getSocket,
@@ -14,6 +14,7 @@ import {
 } from '../../services/socket';
 import { SubjectBadge, UrgencyBadge, StatusBadge } from '../../components/ui/Badge';
 import Avatar from '../../components/ui/Avatar';
+import { PendingHelpRequests, TutorActiveSession } from '../../components/tutorSession';
 import toast from 'react-hot-toast';
 
 interface PendingConversation extends Conversation {
@@ -71,6 +72,10 @@ export function TutorDashboard() {
     resolved: 0,
     pending: 0,
   });
+  
+  // New: Active tutor session state (for AI help requests)
+  const [activeTutorSession, setActiveTutorSession] = useState<AcceptSessionResponse | null>(null);
+  const [showHelpRequests, setShowHelpRequests] = useState(true);
 
   // Fetch tutor's own conversations
   const fetchConversations = useCallback(async () => {
@@ -232,6 +237,27 @@ export function TutorDashboard() {
     return 'Good evening';
   };
 
+  // Handle accepting a tutor session from AI help requests
+  const handleAcceptTutorSession = (sessionData: AcceptSessionResponse) => {
+    setActiveTutorSession(sessionData);
+  };
+
+  // Handle ending a tutor session
+  const handleEndTutorSession = () => {
+    setActiveTutorSession(null);
+    toast.success('Session ended successfully!');
+  };
+
+  // If there's an active tutor session, show the active session view
+  if (activeTutorSession) {
+    return (
+      <TutorActiveSession
+        sessionData={activeTutorSession}
+        onEndSession={handleEndTutorSession}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#212121] text-white p-4">
       {/* Welcome Section */}
@@ -314,6 +340,26 @@ export function TutorDashboard() {
           color="bg-emerald-500"
         />
       </div>
+
+      {/* AI Help Requests Section - Toggle Button */}
+      <button
+        onClick={() => setShowHelpRequests(!showHelpRequests)}
+        className="w-full flex items-center justify-between px-4 py-3 mb-4 bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 border border-violet-500/30 rounded-lg hover:bg-violet-500/20 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-violet-400" />
+          <span className="font-medium text-white">AI Help Requests</span>
+          <span className="text-xs text-gray-400">(Students asking AI for help)</span>
+        </div>
+        <ChevronRight className={`w-5 h-5 text-violet-400 transition-transform ${showHelpRequests ? 'rotate-90' : ''}`} />
+      </button>
+
+      {/* AI Help Requests Panel */}
+      {showHelpRequests && (
+        <div className="mb-4">
+          <PendingHelpRequests onAcceptSession={handleAcceptTutorSession} />
+        </div>
+      )}
 
       {/* Current Session (if busy) */}
       {tutorStatus.hasActiveSession && activeConversations.length > 0 && (

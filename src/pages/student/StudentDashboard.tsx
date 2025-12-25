@@ -1,16 +1,38 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Send, Mic, Sparkles, Loader2, 
   Play, Pause, X, Trash2, FileText,
   ThumbsUp, ThumbsDown, RotateCcw, UserPlus,
-  StopCircle, Paperclip, Check
+  StopCircle, Paperclip
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { geminiChatApi } from '../../api';
-import { AIMessage, TutorRequestStatus } from '../../types';
+import { geminiChatApi, tutorSessionApi } from '../../api';
+import { AIMessage, DailyRoom } from '../../types';
 import { useGeminiChat } from '../../hooks/useGeminiChat';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
+import { TutorSessionPanel, StudentActiveSession } from '../../components/tutorSession';
+import {
+  connectTutorSessionSocket,
+  disconnectTutorSessionSocket,
+  subscribeToAISession,
+  joinSession,
+  getChatHistory,
+  getWhiteboardData,
+  sendChatMessage,
+  onTutorSessionSocketConnect,
+  getTutorSessionSocket,
+} from '../../services/tutorSessionSocket';
+import {
+  getSocket,
+} from '../../services/socket';
+import {
+  getGeminiSocket,
+  onTutorAccepted,
+  offTutorAccepted,
+  onSessionStatusChanged,
+  offSessionStatusChanged,
+} from '../../services/geminiSocket';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -173,92 +195,6 @@ function MessageBubble({ message, isStreaming, streamingContent, onRetry, onFeed
   );
 }
 
-// Tutor Request Panel
-interface TutorPanelProps {
-  sessionId: string;
-  status: TutorRequestStatus;
-  tutorInfo?: { name: string; avatar?: string };
-  conversationId?: string;
-  estimatedWait?: string;
-  onRequest: () => void;
-  onCancel: () => void;
-  isRequesting: boolean;
-}
-
-function TutorPanel({ 
-  status, 
-  tutorInfo, 
-  conversationId, 
-  estimatedWait, 
-  onRequest, 
-  onCancel, 
-  isRequesting 
-}: TutorPanelProps) {
-  const navigate = useNavigate();
-
-  if (status === 'TUTOR_CONNECTED' && conversationId) {
-    return (
-      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center">
-            <Check className="w-5 h-5 text-white" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-emerald-400">Tutor Connected!</p>
-            <p className="text-xs text-gray-400">{tutorInfo?.name || 'A tutor'} is ready to help</p>
-          </div>
-          <button
-            onClick={() => navigate(`/conversations/${conversationId}`)}
-            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Open Chat
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'REQUESTED' || status === 'TUTOR_NOTIFIED' || status === 'TUTOR_COMING') {
-    return (
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-            <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-amber-400">
-              {status === 'TUTOR_COMING' ? 'Tutor is coming!' : 'Finding a tutor...'}
-            </p>
-            <p className="text-xs text-gray-400">
-              {estimatedWait || 'Please wait while we connect you'}
-            </p>
-          </div>
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      onClick={onRequest}
-      disabled={isRequesting}
-      className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium rounded-xl transition-all shadow-lg shadow-violet-500/20 hover:shadow-violet-500/30 disabled:opacity-50"
-    >
-      {isRequesting ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
-      ) : (
-        <UserPlus className="w-4 h-4" />
-      )}
-      Talk to a Tutor
-    </button>
-  );
-}
 
 export function StudentDashboard() {
   const { user } = useAuth();
@@ -274,6 +210,15 @@ export function StudentDashboard() {
   const [input, setInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  
+  // Active tutor session state
+  const [activeTutorSession, setActiveTutorSession] = useState<{
+    tutorSessionId: string;
+    tutorName: string;
+    tutorAvatar?: string;
+    dailyRoom?: DailyRoom;
+  } | null>(null);
+  const [liveSharingEnabled, setLiveSharingEnabled] = useState(false);
   
   // Audio recording
   const [isAudioMode, setIsAudioMode] = useState(false);
@@ -295,12 +240,8 @@ export function StudentDashboard() {
     getAudioFile,
   } = useAudioRecorder(300);
 
-  // Tutor request state
-  const [tutorStatus, setTutorStatus] = useState<TutorRequestStatus>('NONE');
-  const [tutorInfo, setTutorInfo] = useState<{ name: string; avatar?: string } | undefined>();
-  const [linkedConversationId, setLinkedConversationId] = useState<string | undefined>();
-  const [estimatedWait, setEstimatedWait] = useState<string | undefined>();
-  const [isRequestingTutor, setIsRequestingTutor] = useState(false);
+  // Tutor session panel state
+  const [showTutorPanel, setShowTutorPanel] = useState(false);
 
   // Streaming message state
   const [streamingMessage, setStreamingMessage] = useState<AIMessage | null>(null);
@@ -404,24 +345,259 @@ export function StudentDashboard() {
       setStreamingMessage(null);
     },
     onTutorStatusUpdate: (data) => {
-      setTutorStatus(data.status);
       toast(data.message, { icon: '👋' });
     },
     onTutorConnected: (data) => {
-      setTutorStatus('TUTOR_CONNECTED');
-      setTutorInfo(data.tutorInfo);
-      setLinkedConversationId(data.conversationId);
       toast.success(data.message);
     },
     onTutorWaitUpdate: (data) => {
-      setEstimatedWait(data.estimatedWait);
+      toast(data.message, { icon: '⏳' });
     },
   });
+
+  // Connect to tutor session socket when we have an AI session OR active tutor session
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    const shouldConnect = token && (currentSessionId || activeTutorSession);
+
+    if (!shouldConnect) return;
+
+    console.log('[StudentDashboard] Connecting to tutor session socket, token present:', !!token);
+    connectTutorSessionSocket(token);
+
+    // Subscribe to AI session if we have one
+    if (currentSessionId) {
+      subscribeToAISession(currentSessionId);
+    }
+
+    // Join the AI session room on GEMINI socket to receive tutorAccepted
+    const geminiSocket = getGeminiSocket();
+    if (geminiSocket?.connected && currentSessionId) {
+      console.log('[StudentDashboard] Gemini socket connected, joining AI room:', `ai:${currentSessionId}`);
+      geminiSocket.emit('joinRoom', `ai:${currentSessionId}`);
+    } else if (currentSessionId) {
+      console.log('[StudentDashboard] Gemini socket not connected yet');
+    }
+
+    return () => {
+      // Only disconnect if we're not in an active tutor session
+      if (!activeTutorSession) {
+        console.log('[StudentDashboard] Disconnecting tutor session socket');
+        disconnectTutorSessionSocket();
+      }
+
+      // Leave the AI room on Gemini socket
+      if (currentSessionId) {
+        const geminiSocket = getGeminiSocket();
+        if (geminiSocket?.connected) {
+          geminiSocket.emit('leaveRoom', `ai:${currentSessionId}`);
+        }
+      }
+    };
+  }, [currentSessionId, activeTutorSession]);
+
+  // Listen for tutor accepted event on gemini socket
+  useEffect(() => {
+    console.log('[StudentDashboard] Setting up tutorAccepted listener on gemini socket');
+
+    const handleTutorAccepted = async (data: any) => {
+      console.log('[StudentDashboard] Tutor accepted event received:', data);
+
+      // Close tutor panel
+      setShowTutorPanel(false);
+
+      // Handle the event data
+      if (data.tutorSessionId && data.tutor) {
+        console.log('[StudentDashboard] Setting up tutor session');
+        setActiveTutorSession({
+          tutorSessionId: data.tutorSessionId,
+          tutorName: data.tutor.name,
+          tutorAvatar: data.tutor.avatar,
+        });
+        // Only show toast on student side - tutor side shows its own notification
+        toast.success(`🎉 ${data.tutor.name} connected! Starting video call...`);
+
+        // Get room token for student and join session
+        try {
+          console.log('[StudentDashboard] Getting room token for session:', data.tutorSessionId);
+          const response = await tutorSessionApi.getStudentRoomToken(data.tutorSessionId);
+          console.log('[StudentDashboard] Room token response:', response);
+          setActiveTutorSession(prev => prev ? {
+            ...prev,
+            dailyRoom: response.data,
+          } : null);
+
+          // Try to join session and load data immediately, with retry logic
+          const setupSession = () => {
+            console.log('[StudentDashboard] Setting up session:', data.tutorSessionId);
+            joinSession(data.tutorSessionId);
+            getChatHistory(data.tutorSessionId);
+            getWhiteboardData(data.tutorSessionId);
+          };
+
+          // Try immediately
+          setupSession();
+
+          // Also set up a listener in case socket connects later
+          let unsubscribe: (() => void) | null = null;
+          unsubscribe = onTutorSessionSocketConnect(() => {
+            console.log('[StudentDashboard] Socket connected later, re-setting up session');
+            setupSession();
+            if (unsubscribe) {
+              unsubscribe(); // Remove listener after first connection
+            }
+          });
+
+          // Retry after a delay in case socket wasn't ready
+          setTimeout(() => {
+            console.log('[StudentDashboard] Retrying session setup');
+            setupSession();
+          }, 2000);
+
+          console.log('[StudentDashboard] Session setup initiated');
+        } catch (error: any) {
+          console.error('[StudentDashboard] Failed to setup session:', error);
+          console.error('[StudentDashboard] Error details:', error?.response?.data || error?.message);
+          toast.error(`Session setup failed: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
+        }
+      } else {
+        console.log('[StudentDashboard] Incomplete event data:', data);
+        toast.error('Invalid session data received');
+      }
+    };
+
+    const handleSessionStatusChanged = (data: any) => {
+      console.log('[StudentDashboard] Session status changed:', data);
+      if (data.sessionId === activeTutorSession?.tutorSessionId) {
+        // Handle session status changes (COMPLETED, CANCELLED, etc.)
+        if (data.status === 'COMPLETED' || data.status === 'CANCELLED') {
+          setActiveTutorSession(null);
+          toast('Session has ended');
+        }
+      }
+    };
+
+    // Set up listeners on gemini socket
+    onTutorAccepted(handleTutorAccepted);
+    onSessionStatusChanged(handleSessionStatusChanged);
+
+    return () => {
+      offTutorAccepted();
+      offSessionStatusChanged();
+    };
+  }, [activeTutorSession?.tutorSessionId]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
+
+  // 🚨 EMERGENCY TEST FUNCTIONS
+  useEffect(() => {
+    // Global test function
+    (window as any).FORCE_TUTOR_ACCEPTED = (data: any = {}) => {
+      console.log('[EMERGENCY] Forcing tutor accepted event');
+      const eventData = {
+        tutorSessionId: data.tutorSessionId || 'emergency-' + Date.now(),
+        tutor: {
+          id: 'tutor-123',
+          name: data.tutorName || 'Emergency Tutor',
+          avatar: data.tutorAvatar || null
+        },
+        ...data
+      };
+
+      setShowTutorPanel(false);
+      setActiveTutorSession({
+        tutorSessionId: eventData.tutorSessionId,
+        tutorName: eventData.tutor.name,
+        tutorAvatar: eventData.tutor.avatar,
+      });
+      toast.success(`🚨 EMERGENCY: ${eventData.tutor.name} connected!`);
+      console.log('[EMERGENCY] UI should update now');
+    };
+
+    // Check socket status
+    (window as any).CHECK_SOCKET = () => {
+      const socket = getSocket();
+      console.log('[EMERGENCY] Regular socket status:', {
+        connected: socket?.connected,
+        id: socket?.id,
+        rooms: (socket as any)?.rooms
+      });
+
+      // Also check Gemini socket
+      const geminiSocket = getGeminiSocket();
+      console.log('[EMERGENCY] Gemini socket status:', {
+        connected: geminiSocket?.connected,
+        id: geminiSocket?.id,
+        rooms: (geminiSocket as any)?.rooms
+      });
+
+      return { regular: socket, gemini: geminiSocket };
+    };
+
+    // Test backend event emission
+    (window as any).TEST_BACKEND_EVENT = async (sessionId?: string) => {
+      const targetSessionId = sessionId || currentSessionId;
+      console.log('🧪 Testing backend event emission for session:', targetSessionId);
+
+      try {
+        const response = await fetch(`http://localhost:3000/api/v1/tutor-session/test-notification/${targetSessionId}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        const result = await response.json();
+        console.log('🧪 Backend response:', response.status, result);
+        return result;
+      } catch (error) {
+        console.error('🧪 Backend test failed:', error);
+        return { error: (error as Error).message };
+      }
+    };
+
+    // Test socket events
+    (window as any).TEST_SOCKET_EVENTS = () => {
+      if (activeTutorSession) {
+        console.log('🧪 Testing socket events for session:', activeTutorSession.tutorSessionId);
+        joinSession(activeTutorSession.tutorSessionId);
+        getChatHistory(activeTutorSession.tutorSessionId);
+        getWhiteboardData(activeTutorSession.tutorSessionId);
+      } else {
+        console.log('🧪 No active tutor session');
+      }
+    };
+
+    // Test sending chat message
+    (window as any).TEST_SEND_CHAT = (message: string) => {
+      if (activeTutorSession) {
+        console.log('🧪 Sending test chat message:', message);
+        sendChatMessage(activeTutorSession.tutorSessionId, message);
+      } else {
+        console.log('🧪 No active tutor session');
+      }
+    };
+
+    // Check socket status
+    (window as any).CHECK_SOCKET_STATUS = () => {
+      const socket = getTutorSessionSocket();
+      console.log('🧪 Socket status:', {
+        exists: !!socket,
+        connected: socket?.connected,
+        id: socket?.id,
+        rooms: (socket as any)?.rooms
+      });
+      return socket;
+    };
+
+    return () => {
+      delete (window as any).FORCE_TUTOR_ACCEPTED;
+      delete (window as any).CHECK_SOCKET;
+    };
+  }, []);
 
   // Load session from URL or reset for new chat
   useEffect(() => {
@@ -435,10 +611,7 @@ export function StudentDashboard() {
       setCurrentSessionId(null);
       setMessages([]);
       setStreamingMessage(null);
-      setTutorStatus('NONE');
-      setTutorInfo(undefined);
-      setLinkedConversationId(undefined);
-      setEstimatedWait(undefined);
+      setShowTutorPanel(false);
     }
     
     if (!initialLoadDone) {
@@ -452,14 +625,6 @@ export function StudentDashboard() {
       const response = await geminiChatApi.getSession(sessionId);
       setCurrentSessionId(sessionId);
       setMessages(response.data.messages);
-      
-      // Check tutor status
-      if (response.data.session.tutorRequestStatus) {
-        setTutorStatus(response.data.session.tutorRequestStatus);
-        if (response.data.session.linkedConversationId) {
-          setLinkedConversationId(response.data.session.linkedConversationId);
-        }
-      }
     } catch (error) {
       console.error('Failed to load session:', error);
       toast.error('Failed to load chat session');
@@ -608,48 +773,39 @@ export function StudentDashboard() {
     }
   };
 
-  // Handle tutor request
-  const handleRequestTutor = async () => {
+  // Handle tutor button click - open tutor session panel
+  const handleOpenTutorPanel = () => {
     if (!currentSessionId) {
       toast.error('Please start a conversation first');
       return;
     }
-
-    setIsRequestingTutor(true);
-    try {
-      const response = await geminiChatApi.requestTutor({
-        sessionId: currentSessionId,
-        urgency: 'NORMAL',
-      });
-      setTutorStatus(response.data.status);
-      if (response.data.linkedConversationId) {
-        setLinkedConversationId(response.data.linkedConversationId);
-      }
-      toast.success('Tutor request sent!');
-    } catch (error) {
-      console.error('Failed to request tutor:', error);
-      toast.error('Failed to request tutor');
-    } finally {
-      setIsRequestingTutor(false);
-    }
+    setShowTutorPanel(true);
   };
 
-  // Handle cancel tutor request
-  const handleCancelTutorRequest = async () => {
-    if (!currentSessionId) return;
-
-    try {
-      await geminiChatApi.cancelTutorRequest(currentSessionId);
-      setTutorStatus('NONE');
-      setTutorInfo(undefined);
-      setLinkedConversationId(undefined);
-      setEstimatedWait(undefined);
-      toast('Tutor request cancelled', { icon: '✖️' });
-    } catch (error) {
-      console.error('Failed to cancel tutor request:', error);
-      toast.error('Failed to cancel request');
-    }
+  // Close tutor panel
+  const handleCloseTutorPanel = () => {
+    setShowTutorPanel(false);
   };
+
+  // Handle toggle live sharing
+  const handleToggleLiveSharing = useCallback(async (enabled: boolean) => {
+    if (!activeTutorSession?.tutorSessionId) return;
+    
+    try {
+      await tutorSessionApi.updateConsent(activeTutorSession.tutorSessionId, enabled);
+      setLiveSharingEnabled(enabled);
+      toast.success(enabled ? 'AI chat sharing enabled' : 'AI chat sharing disabled');
+    } catch (error) {
+      console.error('Failed to update consent:', error);
+      toast.error('Failed to update sharing settings');
+    }
+  }, [activeTutorSession?.tutorSessionId]);
+
+  // End tutor session
+  const handleEndTutorSession = useCallback(() => {
+    setActiveTutorSession(null);
+    setLiveSharingEnabled(false);
+  }, []);
 
   // Audio controls
   const handleAudioClick = () => {
@@ -702,21 +858,18 @@ export function StudentDashboard() {
           </div>
         </header>
 
-        {/* Tutor Status Banner - shows when tutor is requested (sticky with header) */}
-        {(tutorStatus === 'REQUESTED' || tutorStatus === 'TUTOR_NOTIFIED' || tutorStatus === 'TUTOR_COMING' || tutorStatus === 'TUTOR_CONNECTED') && (
-          <div className="px-4 py-2 border-b border-gray-800/50 bg-[#0f0f0f]">
-            <div className="max-w-3xl mx-auto">
-              <TutorPanel
-                sessionId={currentSessionId || ''}
-                status={tutorStatus}
-                tutorInfo={tutorInfo}
-                conversationId={linkedConversationId}
-                estimatedWait={estimatedWait}
-                onRequest={handleRequestTutor}
-                onCancel={handleCancelTutorRequest}
-                isRequesting={isRequestingTutor}
-              />
-            </div>
+        {/* Active Tutor Session Banner */}
+        {activeTutorSession && (
+          <div className="px-4 py-2 border-b border-gray-800/50">
+            <StudentActiveSession
+              key={activeTutorSession.tutorSessionId} // Force re-mount when session changes
+              tutorSessionId={activeTutorSession.tutorSessionId}
+              tutorName={activeTutorSession.tutorName}
+              dailyRoom={activeTutorSession.dailyRoom}
+              liveSharingEnabled={liveSharingEnabled}
+              onToggleLiveSharing={handleToggleLiveSharing}
+              onEndSession={handleEndTutorSession}
+            />
           </div>
         )}
       </div>
@@ -966,20 +1119,18 @@ export function StudentDashboard() {
                   >
                     <Mic className="w-5 h-5" />
                   </button>
-                  {/* Talk to Tutor Button */}
-                  <button
-                    type="button"
-                    onClick={handleRequestTutor}
-                    disabled={isSubmitting || isStreaming || isRequestingTutor || tutorStatus !== 'NONE'}
-                    className="p-2 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors disabled:opacity-50"
-                    title="Talk to a human tutor"
-                  >
-                    {isRequestingTutor ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
+                  {/* Talk to Tutor Button - Hidden when already in session */}
+                  {!activeTutorSession && (
+                    <button
+                      type="button"
+                      onClick={handleOpenTutorPanel}
+                      disabled={isSubmitting || isStreaming || !currentSessionId}
+                      className="p-2 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors disabled:opacity-50"
+                      title="Talk to a human tutor"
+                    >
                       <UserPlus className="w-5 h-5" />
-                    )}
-                  </button>
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={isSubmitting || isStreaming || (!input.trim() && attachments.length === 0)}
@@ -1006,6 +1157,58 @@ export function StudentDashboard() {
           </p>
         </div>
       </div>
+
+      {/* Tutor Session Panel Modal */}
+      {showTutorPanel && currentSessionId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md animate-fadeIn">
+            {/* DEBUG INDICATOR */}
+            <div className="mb-2 text-xs text-green-400 bg-green-900/20 px-2 py-1 rounded text-center">
+              🔧 DEBUG: Gemini Listener Active | Session: {currentSessionId}
+              <div className="flex gap-1 mt-1 justify-center">
+                <button
+                  onClick={() => (window as any).FORCE_TUTOR_ACCEPTED()}
+                  className="px-2 py-1 bg-red-600 text-white text-xs rounded"
+                >
+                  FORCE TEST
+                </button>
+                <button
+                  onClick={async () => {
+                    console.log('🧪 Testing backend event emission...');
+                    try {
+                      const response = await fetch(`http://localhost:3000/api/v1/tutor-session/test-notification/${currentSessionId}`, {
+                        method: 'POST',
+                        headers: {
+                          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+                          'Content-Type': 'application/json'
+                        }
+                      });
+                      const result = await response.json();
+                      console.log('🧪 Test notification response:', response.status, result);
+
+                      if (response.ok) {
+                        console.log('✅ Backend test successful - waiting for event...');
+                      } else {
+                        console.log('❌ Backend test failed:', result);
+                      }
+                    } catch (error) {
+                      console.error('❌ Test notification failed:', error);
+                    }
+                  }}
+                  className="px-2 py-1 bg-blue-600 text-white text-xs rounded"
+                >
+                  TEST BACKEND
+                </button>
+              </div>
+            </div>
+            <TutorSessionPanel
+              aiSessionId={currentSessionId}
+              activeTutorSession={activeTutorSession}
+              onClose={handleCloseTutorPanel}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Custom animations */}
       <style>{`

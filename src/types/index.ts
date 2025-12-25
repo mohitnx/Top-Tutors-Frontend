@@ -825,3 +825,220 @@ export interface TutorWaitUpdateEvent {
 // AI Chat Urgency
 export type AIUrgency = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
+// ============================================
+// Tutor Session Types (Live Collaboration)
+// ============================================
+
+// Session Status
+export type TutorSessionStatus = 
+  | 'PENDING'
+  | 'ACCEPTED'
+  | 'ACTIVE'
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+// Daily.co Room
+export interface DailyRoom {
+  url: string;
+  token: string;
+}
+
+// Pending Help Request (Tutor sees)
+export interface PendingHelpRequest {
+  id: string;
+  topic: string;
+  subject: Subject;
+  summary: string;
+  messageCount: number;
+  student: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  urgency: AIUrgency;
+  keywords?: string[];
+  createdAt: string;
+}
+
+// Tutor Session Summary
+export interface TutorSessionSummary {
+  sessionId: string;
+  aiSessionId: string;
+  summary: string;
+  topic: string;
+  subject: Subject;
+  keywords: string[];
+  messageCount: number;
+  student: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  createdAt: string;
+  liveSharingEnabled: boolean;
+}
+
+// Tutor Session (Full)
+export interface TutorSession {
+  id: string;
+  aiSessionId: string;
+  status: TutorSessionStatus;
+  topic: string;
+  subject: Subject;
+  summary: string;
+  keywords: string[];
+  messageCount: number;
+  liveSharingEnabled: boolean;
+  dailyRoomUrl?: string;
+  whiteboardRoomId?: string;
+  student: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  tutor?: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  startedAt?: string;
+  endedAt?: string;
+  duration?: number;
+  createdAt: string;
+}
+
+// Accept Session Response
+export interface AcceptSessionResponse {
+  session: TutorSession;
+  summary: TutorSessionSummary;
+  chatHistory: TutorSessionChatMessage[];
+  dailyRoom?: DailyRoom; // Optional - may not be available immediately
+}
+
+// Tutor Session Chat Message (from AI conversation)
+export interface TutorSessionChatMessage {
+  id: string;
+  role: 'USER' | 'ASSISTANT';
+  content: string;
+  attachments?: AIAttachment[];
+  createdAt: string;
+}
+
+// Chat History Response
+export interface ChatHistoryResponse {
+  messages: TutorSessionChatMessage[];
+  liveSharingEnabled: boolean;
+  lastUpdated: string;
+}
+
+// Consent Status Response
+export interface ConsentStatusResponse {
+  liveSharingEnabled: boolean;
+  tutorConnected: boolean;
+  tutorName?: string;
+}
+
+// Whiteboard Data
+export interface WhiteboardData {
+  elements: unknown[];
+  appState?: unknown;
+}
+
+// ============================================
+// Tutor Session WebSocket Events
+// ============================================
+
+// Tutor Accepted Event (Student receives)
+export interface TutorSessionAcceptedEvent {
+  tutorSessionId: string;
+  tutor: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  dailyRoomUrl: string;
+}
+
+// New AI Message Event (Tutor receives if live sharing)
+export interface NewAIMessageEvent {
+  id: string;
+  role: 'USER' | 'ASSISTANT';
+  content: string;
+  createdAt: string;
+}
+
+// Consent Changed Event
+export interface ConsentChangedEvent {
+  sessionId: string;
+  liveSharingEnabled: boolean;
+}
+
+// Session Status Changed Event
+export interface SessionStatusChangedEvent {
+  sessionId: string;
+  status: TutorSessionStatus;
+}
+
+// Participant Event
+export interface TutorSessionParticipantEvent {
+  sessionId: string;
+  userId: string;
+  role: 'student' | 'tutor';
+  name?: string;
+}
+
+// Chat Message Event (Tutor-Student Chat)
+export interface TutorStudentChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  content: string;
+  role: 'student' | 'tutor';
+  createdAt: string;
+}
+
+// Whiteboard Update Event
+export interface WhiteboardUpdateEvent {
+  sessionId: string;
+  elements: unknown[];
+  appState?: unknown;
+  senderId: string;
+}
+
+// Whiteboard Cursor Event
+export interface WhiteboardCursorEvent {
+  sessionId: string;
+  userId: string;
+  x: number;
+  y: number;
+}
+
+// User Typing Event (Tutor Session)
+export interface TutorSessionTypingEvent {
+  sessionId: string;
+  userId: string;
+  role: 'student' | 'tutor';
+  isTyping: boolean;
+}
+
+// Call Signal Event
+export type CallSignalType = 'mute' | 'unmute' | 'videoOn' | 'videoOff' | 'screenShare' | 'stopScreenShare';
+
+export interface TutorSessionCallSignal {
+  sessionId: string;
+  userId: string;
+  signal: CallSignalType;
+}
+
+// New Help Request Event (Tutor notification)
+export interface NewHelpRequestEvent {
+  tutorSessionId: string;
+  topic: string;
+  subject: Subject;
+  summary: string;
+  studentName: string;
+  messageCount: number;
+  urgency: AIUrgency;
+}
+
