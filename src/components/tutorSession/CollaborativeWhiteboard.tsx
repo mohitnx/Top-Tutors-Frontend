@@ -8,16 +8,7 @@ import {
   onTutorSessionSocketConnect,
   joinSession,
   sendWhiteboardUpdate,
-  sendWhiteboardCursor,
   getWhiteboardData,
-  onWhiteboardUpdate,
-  onWhiteboardData,
-  offWhiteboardUpdate,
-  offWhiteboardData,
-  onJoinSession,
-  offJoinSession,
-  onConnected,
-  offConnected,
 } from '../../services/tutorSessionSocket';
 import { WhiteboardUpdateEvent } from '../../types';
 
@@ -52,7 +43,7 @@ export function CollaborativeWhiteboard({
   const lastSentElementsRef = useRef<string>('');
   const isRemoteUpdateRef = useRef(false);
   const joinedSessionRef = useRef(false);
-  const connectionAttemptRef = useRef(0);
+  const excalidrawReadyRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
@@ -60,7 +51,7 @@ export function CollaborativeWhiteboard({
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
   const [debugInfo, setDebugInfo] = useState<string>('');
 
-  // ⭐ CRITICAL: Connect to socket and handle whiteboard events
+  // ⭐ CRITICAL: Set up socket connection and event listeners
   useEffect(() => {
     console.log('[CollaborativeWhiteboard] 🔌 Initializing for session:', sessionId);
 
@@ -73,237 +64,182 @@ export function CollaborativeWhiteboard({
     }
 
     let cleanedUp = false;
-    let connectionTimeout: ReturnType<typeof setTimeout>;
 
-    // ⭐ Handler for when socket connects
-    const handleSocketConnected = (data: any) => {
-      console.log('[CollaborativeWhiteboard] ✅ Socket connected event received:', data);
+    // Connect to socket
+    const socket = connectTutorSessionSocket(token);
+
+    // ⭐ CRITICAL: Define event handlers that use refs (not state)
+    const handleConnected = (data: any) => {
+      if (cleanedUp) return;
+      console.log('[CollaborativeWhiteboard] ✅ Socket connected:', data);
       setIsConnected(true);
       setConnectionError(false);
-      
-      // Join session immediately after socket connects
-      if (!joinedSessionRef.current) {
-        console.log('[CollaborativeWhiteboard] 🚪 Joining session:', sessionId);
-        joinSession(sessionId);
-      }
+      setDebugInfo(`Connected as ${data?.role || 'user'}`);
     };
 
-    // ⭐ Handler for joinSession acknowledgment
     const handleJoinSession = (response: any) => {
+      if (cleanedUp) return;
       console.log('[CollaborativeWhiteboard] ✅ Join session response:', response);
       
       if (response.success || response.sessionId === sessionId) {
         joinedSessionRef.current = true;
-        setIsConnected(true);
-        setConnectionError(false);
         setDebugInfo(`Joined as ${response.role || 'user'}`);
         
-        // ⭐ CRITICAL: Request whiteboard data AFTER successfully joining
-        console.log('[CollaborativeWhiteboard] 📋 Requesting whiteboard data...');
+        // Request whiteboard data after joining
         setTimeout(() => {
-          getWhiteboardData(sessionId);
-        }, 100); // Small delay to ensure room join is processed
+          if (!cleanedUp) {
+            console.log('[CollaborativeWhiteboard] 📋 Requesting whiteboard data...');
+            getWhiteboardData(sessionId);
+          }
+        }, 100);
       }
     };
 
-    // ⭐ Handler for whiteboard data response
     const handleWhiteboardData = (data: any) => {
-      console.log('[CollaborativeWhiteboard] 📋 Received whiteboard data:', {
-        sessionId: data.sessionId,
-        hasElements: !!data.whiteboardData?.elements,
-        elementCount: data.whiteboardData?.elements?.length || 0,
-        enabled: data.whiteboardEnabled,
-      });
-
-      // ⭐ CRITICAL FIX: Always stop loading when we receive ANY whiteboard data event
+      if (cleanedUp) return;
+      console.log('[CollaborativeWhiteboard] 📋 Received whiteboard data:', data);
+      
+      // Always stop loading
       setIsLoading(false);
 
-      // ⭐ FIX: Accept data if sessionId matches OR if no sessionId filter needed
+      // Check session ID
       if (data.sessionId && data.sessionId !== sessionId) {
         console.log('[CollaborativeWhiteboard] ⚠️ Ignoring data for different session');
         return;
       }
 
-      if (data.whiteboardData && excalidrawRef.current) {
+      // Apply data to Excalidraw
+      if (excalidrawRef.current && data.whiteboardData) {
         const elements = data.whiteboardData.elements || [];
-        const appState = data.whiteboardData.appState || { viewBackgroundColor: '#1e1e1e' };
-        
-        console.log('[CollaborativeWhiteboard] 🎨 Applying whiteboard data:', elements.length, 'elements');
+        console.log('[CollaborativeWhiteboard] 🎨 Applying', elements.length, 'elements');
         
         isRemoteUpdateRef.current = true;
-        excalidrawRef.current.updateScene({
-          elements,
-          appState: {
-            ...appState,
-            viewBackgroundColor: appState.viewBackgroundColor || '#1e1e1e',
-          },
-        });
-        
-        // Update our tracking ref
-        lastSentElementsRef.current = JSON.stringify(elements);
-        
-        setTimeout(() => {
-          isRemoteUpdateRef.current = false;
-        }, 100);
+        try {
+          excalidrawRef.current.updateScene({
+            elements,
+            appState: data.whiteboardData.appState || { viewBackgroundColor: '#1e1e1e' },
+          });
+          lastSentElementsRef.current = JSON.stringify(elements);
+        } catch (err) {
+          console.error('[CollaborativeWhiteboard] ❌ Failed to apply data:', err);
+        }
+        setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
       }
     };
 
-    // ⭐ Handler for live updates from other users
     const handleWhiteboardUpdate = (data: WhiteboardUpdateEvent & { senderId?: string; senderRole?: string }) => {
-      console.log('[CollaborativeWhiteboard] 🔄 Whiteboard update received:', {
+      if (cleanedUp) return;
+      console.log('[CollaborativeWhiteboard] 🔄 RECEIVED whiteboard update:', {
         sessionId: data.sessionId,
         senderId: data.senderId,
         elementCount: data.elements?.length || 0,
+        hasExcalidraw: !!excalidrawRef.current,
+        excalidrawReady: excalidrawReadyRef.current,
       });
 
-      // ⭐ FIX: Check sessionId properly
+      // Check session ID
       if (data.sessionId && data.sessionId !== sessionId) {
         console.log('[CollaborativeWhiteboard] ⚠️ Ignoring update for different session');
         return;
       }
 
-      if (excalidrawRef.current && data.elements) {
-        console.log('[CollaborativeWhiteboard] 🎨 Applying remote update:', data.elements.length, 'elements');
+      // ⭐ CRITICAL: Check if Excalidraw is ready
+      if (!excalidrawRef.current) {
+        console.warn('[CollaborativeWhiteboard] ⚠️ Excalidraw not ready, queuing update');
+        // Queue the update to be applied when Excalidraw is ready
+        setTimeout(() => handleWhiteboardUpdate(data), 500);
+        return;
+      }
+
+      if (data.elements) {
+        console.log('[CollaborativeWhiteboard] 🎨 APPLYING remote update:', data.elements.length, 'elements');
         
         isRemoteUpdateRef.current = true;
-        excalidrawRef.current.updateScene({
-          elements: data.elements,
-          appState: data.appState || {},
-        });
-        
-        // Update tracking ref to prevent echo
-        lastSentElementsRef.current = JSON.stringify(data.elements);
-        
-        setTimeout(() => {
-          isRemoteUpdateRef.current = false;
-        }, 100);
+        try {
+          excalidrawRef.current.updateScene({
+            elements: data.elements,
+            appState: data.appState || {},
+          });
+          lastSentElementsRef.current = JSON.stringify(data.elements);
+          console.log('[CollaborativeWhiteboard] ✅ Remote update applied successfully');
+        } catch (err) {
+          console.error('[CollaborativeWhiteboard] ❌ Failed to apply update:', err);
+        }
+        setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
       }
     };
 
-    // ⭐ Main connection logic
-    const setupConnection = () => {
-      connectionAttemptRef.current++;
-      console.log('[CollaborativeWhiteboard] 🔌 Connection attempt #', connectionAttemptRef.current);
+    // ⭐ Register event listeners DIRECTLY on socket
+    socket.on('connected', handleConnected);
+    socket.on('joinSession', handleJoinSession);
+    socket.on('whiteboardData', handleWhiteboardData);
+    socket.on('whiteboardUpdate', handleWhiteboardUpdate);
 
-      // Set up event listeners FIRST
-      onConnected(handleSocketConnected);
-      onJoinSession(handleJoinSession);
-      onWhiteboardData(handleWhiteboardData);
-      onWhiteboardUpdate(handleWhiteboardUpdate);
+    console.log('[CollaborativeWhiteboard] 👂 Event listeners registered');
 
-      // Check if socket already exists and is connected
-      let socket = getTutorSessionSocket();
+    // Join session when socket is ready
+    const tryJoinSession = () => {
+      if (cleanedUp) return;
       
-      if (socket?.connected) {
-        console.log('[CollaborativeWhiteboard] ✅ Socket already connected');
+      const currentSocket = getTutorSessionSocket();
+      if (currentSocket?.connected) {
+        console.log('[CollaborativeWhiteboard] 🚪 Joining session:', sessionId);
+        joinSession(sessionId);
         setIsConnected(true);
-        setConnectionError(false);
         
-        // Join session immediately
-        if (!joinedSessionRef.current) {
-          console.log('[CollaborativeWhiteboard] 🚪 Joining session (already connected):', sessionId);
-          joinSession(sessionId);
-          joinedSessionRef.current = true; // ⭐ FIX: Mark as joined immediately
-          
-          // Request data after a brief delay
-          setTimeout(() => {
-            if (!cleanedUp) {
-              console.log('[CollaborativeWhiteboard] 📋 Requesting whiteboard data (already connected)...');
-              getWhiteboardData(sessionId);
-            }
-          }, 300);
-          
-          // ⭐ FIX: Set loading timeout - don't wait forever for data
-          setTimeout(() => {
-            if (!cleanedUp) {
-              setIsLoading(false); // Stop loading after 3 seconds regardless
-            }
-          }, 3000);
-        }
-      } else {
-        console.log('[CollaborativeWhiteboard] 🔌 Connecting socket...');
-        
-        // Connect the socket
-        socket = connectTutorSessionSocket(token);
-        
-        // Set up connection listener
-        const unsubscribe = onTutorSessionSocketConnect(() => {
-          if (cleanedUp) return;
-          
-          console.log('[CollaborativeWhiteboard] ✅ Socket connected via listener');
-          setIsConnected(true);
-          setConnectionError(false);
-          
-          // Join session
-          if (!joinedSessionRef.current) {
-            console.log('[CollaborativeWhiteboard] 🚪 Joining session (via listener):', sessionId);
-            joinSession(sessionId);
-            joinedSessionRef.current = true; // ⭐ FIX: Mark as joined
-            
-            // ⭐ FIX: Request data and set loading timeout
-            setTimeout(() => {
-              if (!cleanedUp) {
-                getWhiteboardData(sessionId);
-              }
-            }, 200);
-            
-            setTimeout(() => {
-              if (!cleanedUp) {
-                setIsLoading(false);
-              }
-            }, 3000);
+        // Request data after a delay
+        setTimeout(() => {
+          if (!cleanedUp) {
+            getWhiteboardData(sessionId);
           }
-          
-          unsubscribe();
-        });
-
-        // Set timeout for connection
-        connectionTimeout = setTimeout(() => {
-          if (cleanedUp) return;
-          
-          const currentSocket = getTutorSessionSocket();
-          if (!currentSocket?.connected && !joinedSessionRef.current) {
-            console.warn('[CollaborativeWhiteboard] ⚠️ Connection timeout - entering offline mode');
-            setConnectionError(true);
-            setIsLoading(false);
-          }
-        }, 8000);
+        }, 500);
       }
-      
-      // ⭐ CRITICAL FIX: Always stop loading after max 5 seconds
-      setTimeout(() => {
-        if (!cleanedUp) {
-          console.log('[CollaborativeWhiteboard] ⏰ Loading timeout - stopping loader');
-          setIsLoading(false);
-        }
-      }, 5000);
     };
 
-    // Start connection
-    setupConnection();
+    // Try to join immediately if already connected
+    if (socket.connected) {
+      tryJoinSession();
+    }
+
+    // Also set up connection listener for reconnects
+    const unsubscribeConnect = onTutorSessionSocketConnect(() => {
+      if (cleanedUp) return;
+      console.log('[CollaborativeWhiteboard] 🔄 Socket (re)connected, joining session');
+      tryJoinSession();
+    });
+
+    // ⭐ Loading timeout - don't wait forever
+    const loadingTimeout = setTimeout(() => {
+      if (!cleanedUp) {
+        console.log('[CollaborativeWhiteboard] ⏰ Loading timeout');
+        setIsLoading(false);
+      }
+    }, 5000);
 
     // Cleanup
     return () => {
-      console.log('[CollaborativeWhiteboard] 🔌 Cleaning up whiteboard');
+      console.log('[CollaborativeWhiteboard] 🔌 Cleaning up');
       cleanedUp = true;
       joinedSessionRef.current = false;
+      clearTimeout(loadingTimeout);
+      unsubscribeConnect();
       
-      if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
+      // ⭐ Remove event listeners from socket
+      const currentSocket = getTutorSessionSocket();
+      if (currentSocket) {
+        currentSocket.off('connected', handleConnected);
+        currentSocket.off('joinSession', handleJoinSession);
+        currentSocket.off('whiteboardData', handleWhiteboardData);
+        currentSocket.off('whiteboardUpdate', handleWhiteboardUpdate);
       }
-      
-      offConnected();
-      offJoinSession();
-      offWhiteboardData();
-      offWhiteboardUpdate();
     };
   }, [sessionId]);
 
   // ⭐ Clean up stale cursors
   useEffect(() => {
     const interval = setInterval(() => {
-      const now = Date.now();
       setRemoteCursors(prev => {
+        const now = Date.now();
         const updated = new Map(prev);
         let changed = false;
         for (const [key, cursor] of updated) {
@@ -315,7 +251,6 @@ export function CollaborativeWhiteboard({
         return changed ? updated : prev;
       });
     }, 1000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -339,12 +274,11 @@ export function CollaborativeWhiteboard({
 
     lastSentElementsRef.current = elementsJson;
 
-    // ⭐ CRITICAL: Send whiteboard update via socket
+    // Send whiteboard update via socket
     console.log('[CollaborativeWhiteboard] 📤 Sending whiteboard update:', elements.length, 'elements');
-    
     sendWhiteboardUpdate(
       sessionId,
-      [...elements], // Convert readonly to mutable array
+      [...elements],
       appState ? { viewBackgroundColor: appState.viewBackgroundColor } : undefined
     );
 
@@ -367,13 +301,23 @@ export function CollaborativeWhiteboard({
   const handleRefresh = useCallback(() => {
     console.log('[CollaborativeWhiteboard] 🔄 Force refreshing whiteboard data');
     setIsLoading(true);
+    joinedSessionRef.current = false;
     
     // Re-join session and request data
     joinSession(sessionId);
     setTimeout(() => {
       getWhiteboardData(sessionId);
-    }, 200);
+      // Stop loading after 3 seconds
+      setTimeout(() => setIsLoading(false), 3000);
+    }, 300);
   }, [sessionId]);
+
+  // ⭐ Handle Excalidraw API ready
+  const handleExcalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
+    console.log('[CollaborativeWhiteboard] ✅ Excalidraw API ready');
+    excalidrawRef.current = api;
+    excalidrawReadyRef.current = true;
+  }, []);
 
   // ⭐ Connection status indicator
   const getConnectionStatus = () => {
@@ -437,10 +381,7 @@ export function CollaborativeWhiteboard({
       {/* Excalidraw Canvas */}
       <div className="w-full flex-1" style={{ minHeight: readOnly ? '100%' : 'calc(100% - 48px)' }}>
         <Excalidraw
-          excalidrawAPI={(api) => {
-            excalidrawRef.current = api;
-            console.log('[CollaborativeWhiteboard] ✅ Excalidraw API ready');
-          }}
+          excalidrawAPI={handleExcalidrawAPI}
           initialData={{
             elements: initialData?.elements || [],
             appState: {
