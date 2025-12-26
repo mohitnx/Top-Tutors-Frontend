@@ -14,6 +14,7 @@ import { WhiteboardUpdateEvent } from '../../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ExcalidrawImperativeAPI = any;
+type ExcalidrawElement = any;
 
 interface CollaborativeWhiteboardProps {
   sessionId: string;
@@ -31,6 +32,34 @@ interface RemoteCursor {
   lastUpdate: number;
 }
 
+// ⭐ CRITICAL: Merge elements from remote with local elements
+// Elements are identified by their 'id' property
+function mergeElements(localElements: ExcalidrawElement[], remoteElements: ExcalidrawElement[]): ExcalidrawElement[] {
+  const elementMap = new Map<string, ExcalidrawElement>();
+  
+  // Add all local elements first
+  for (const el of localElements) {
+    if (el && el.id) {
+      elementMap.set(el.id, el);
+    }
+  }
+  
+  // Override/add with remote elements (remote takes precedence for same IDs)
+  for (const el of remoteElements) {
+    if (el && el.id) {
+      const existing = elementMap.get(el.id);
+      // Use remote element if it's newer (higher version) or doesn't exist locally
+      if (!existing || (el.version && existing.version && el.version >= existing.version)) {
+        elementMap.set(el.id, el);
+      } else if (!existing) {
+        elementMap.set(el.id, el);
+      }
+    }
+  }
+  
+  return Array.from(elementMap.values());
+}
+
 export function CollaborativeWhiteboard({
   sessionId,
   initialData,
@@ -44,12 +73,34 @@ export function CollaborativeWhiteboard({
   const isRemoteUpdateRef = useRef(false);
   const joinedSessionRef = useRef(false);
   const excalidrawReadyRef = useRef(false);
+  const pendingUpdatesRef = useRef<any[]>([]);
 
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
   const [debugInfo, setDebugInfo] = useState<string>('');
+
+  // ⭐ Process any pending updates when Excalidraw becomes ready
+  const processPendingUpdates = useCallback(() => {
+    if (!excalidrawRef.current || pendingUpdatesRef.current.length === 0) return;
+    
+    console.log('[CollaborativeWhiteboard] Processing', pendingUpdatesRef.current.length, 'pending updates');
+    
+    const currentElements = excalidrawRef.current.getSceneElements() || [];
+    let mergedElements = [...currentElements];
+    
+    for (const update of pendingUpdatesRef.current) {
+      mergedElements = mergeElements(mergedElements, update.elements || []);
+    }
+    
+    pendingUpdatesRef.current = [];
+    
+    isRemoteUpdateRef.current = true;
+    excalidrawRef.current.updateScene({ elements: mergedElements });
+    lastSentElementsRef.current = JSON.stringify(mergedElements);
+    setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
+  }, []);
 
   // ⭐ CRITICAL: Set up socket connection and event listeners
   useEffect(() => {
@@ -68,7 +119,7 @@ export function CollaborativeWhiteboard({
     // Connect to socket
     const socket = connectTutorSessionSocket(token);
 
-    // ⭐ CRITICAL: Define event handlers that use refs (not state)
+    // ⭐ Handler for when socket connects
     const handleConnected = (data: any) => {
       if (cleanedUp) return;
       console.log('[CollaborativeWhiteboard] ✅ Socket connected:', data);
@@ -77,6 +128,7 @@ export function CollaborativeWhiteboard({
       setDebugInfo(`Connected as ${data?.role || 'user'}`);
     };
 
+    // ⭐ Handler for joinSession acknowledgment
     const handleJoinSession = (response: any) => {
       if (cleanedUp) return;
       console.log('[CollaborativeWhiteboard] ✅ Join session response:', response);
@@ -95,6 +147,7 @@ export function CollaborativeWhiteboard({
       }
     };
 
+    // ⭐ Handler for initial whiteboard data
     const handleWhiteboardData = (data: any) => {
       if (cleanedUp) return;
       console.log('[CollaborativeWhiteboard] 📋 Received whiteboard data:', data);
@@ -108,33 +161,42 @@ export function CollaborativeWhiteboard({
         return;
       }
 
-      // Apply data to Excalidraw
-      if (excalidrawRef.current && data.whiteboardData) {
-        const elements = data.whiteboardData.elements || [];
-        console.log('[CollaborativeWhiteboard] 🎨 Applying', elements.length, 'elements');
-        
-        isRemoteUpdateRef.current = true;
-        try {
-          excalidrawRef.current.updateScene({
-            elements,
-            appState: data.whiteboardData.appState || { viewBackgroundColor: '#1e1e1e' },
-          });
-          lastSentElementsRef.current = JSON.stringify(elements);
-        } catch (err) {
-          console.error('[CollaborativeWhiteboard] ❌ Failed to apply data:', err);
-        }
-        setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
+      const remoteElements = data.whiteboardData?.elements || [];
+      
+      // If Excalidraw isn't ready, queue the update
+      if (!excalidrawRef.current) {
+        console.log('[CollaborativeWhiteboard] ⏳ Queuing initial data (Excalidraw not ready)');
+        pendingUpdatesRef.current.push({ elements: remoteElements });
+        return;
       }
+
+      // Get current local elements and merge
+      const currentElements = excalidrawRef.current.getSceneElements() || [];
+      const mergedElements = mergeElements(currentElements, remoteElements);
+      
+      console.log('[CollaborativeWhiteboard] 🎨 Applying merged data:', mergedElements.length, 'elements');
+      
+      isRemoteUpdateRef.current = true;
+      try {
+        excalidrawRef.current.updateScene({
+          elements: mergedElements,
+          appState: data.whiteboardData?.appState || { viewBackgroundColor: '#1e1e1e' },
+        });
+        lastSentElementsRef.current = JSON.stringify(mergedElements);
+      } catch (err) {
+        console.error('[CollaborativeWhiteboard] ❌ Failed to apply data:', err);
+      }
+      setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
     };
 
+    // ⭐ Handler for live updates from other users - MERGES instead of replacing
     const handleWhiteboardUpdate = (data: WhiteboardUpdateEvent & { senderId?: string; senderRole?: string }) => {
       if (cleanedUp) return;
       console.log('[CollaborativeWhiteboard] 🔄 RECEIVED whiteboard update:', {
         sessionId: data.sessionId,
         senderId: data.senderId,
+        senderRole: data.senderRole,
         elementCount: data.elements?.length || 0,
-        hasExcalidraw: !!excalidrawRef.current,
-        excalidrawReady: excalidrawReadyRef.current,
       });
 
       // Check session ID
@@ -143,30 +205,37 @@ export function CollaborativeWhiteboard({
         return;
       }
 
-      // ⭐ CRITICAL: Check if Excalidraw is ready
+      const remoteElements = data.elements || [];
+
+      // If Excalidraw isn't ready, queue the update
       if (!excalidrawRef.current) {
-        console.warn('[CollaborativeWhiteboard] ⚠️ Excalidraw not ready, queuing update');
-        // Queue the update to be applied when Excalidraw is ready
-        setTimeout(() => handleWhiteboardUpdate(data), 500);
+        console.warn('[CollaborativeWhiteboard] ⏳ Queuing update (Excalidraw not ready)');
+        pendingUpdatesRef.current.push({ elements: remoteElements });
         return;
       }
 
-      if (data.elements) {
-        console.log('[CollaborativeWhiteboard] 🎨 APPLYING remote update:', data.elements.length, 'elements');
-        
-        isRemoteUpdateRef.current = true;
-        try {
-          excalidrawRef.current.updateScene({
-            elements: data.elements,
-            appState: data.appState || {},
-          });
-          lastSentElementsRef.current = JSON.stringify(data.elements);
-          console.log('[CollaborativeWhiteboard] ✅ Remote update applied successfully');
-        } catch (err) {
-          console.error('[CollaborativeWhiteboard] ❌ Failed to apply update:', err);
-        }
-        setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
+      // ⭐ CRITICAL: Get current elements and MERGE with remote
+      const currentElements = excalidrawRef.current.getSceneElements() || [];
+      const mergedElements = mergeElements(currentElements, remoteElements);
+      
+      console.log('[CollaborativeWhiteboard] 🎨 MERGING remote update:', {
+        local: currentElements.length,
+        remote: remoteElements.length,
+        merged: mergedElements.length,
+      });
+      
+      isRemoteUpdateRef.current = true;
+      try {
+        excalidrawRef.current.updateScene({
+          elements: mergedElements,
+          appState: data.appState || {},
+        });
+        lastSentElementsRef.current = JSON.stringify(mergedElements);
+        console.log('[CollaborativeWhiteboard] ✅ Merged update applied successfully');
+      } catch (err) {
+        console.error('[CollaborativeWhiteboard] ❌ Failed to apply update:', err);
       }
+      setTimeout(() => { isRemoteUpdateRef.current = false; }, 100);
     };
 
     // ⭐ Register event listeners DIRECTLY on socket
@@ -175,7 +244,7 @@ export function CollaborativeWhiteboard({
     socket.on('whiteboardData', handleWhiteboardData);
     socket.on('whiteboardUpdate', handleWhiteboardUpdate);
 
-    console.log('[CollaborativeWhiteboard] 👂 Event listeners registered');
+    console.log('[CollaborativeWhiteboard] 👂 Event listeners registered on socket');
 
     // Join session when socket is ready
     const tryJoinSession = () => {
@@ -221,6 +290,7 @@ export function CollaborativeWhiteboard({
       console.log('[CollaborativeWhiteboard] 🔌 Cleaning up');
       cleanedUp = true;
       joinedSessionRef.current = false;
+      pendingUpdatesRef.current = [];
       clearTimeout(loadingTimeout);
       unsubscribeConnect();
       
@@ -317,7 +387,12 @@ export function CollaborativeWhiteboard({
     console.log('[CollaborativeWhiteboard] ✅ Excalidraw API ready');
     excalidrawRef.current = api;
     excalidrawReadyRef.current = true;
-  }, []);
+    
+    // Process any pending updates
+    setTimeout(() => {
+      processPendingUpdates();
+    }, 100);
+  }, [processPendingUpdates]);
 
   // ⭐ Connection status indicator
   const getConnectionStatus = () => {
