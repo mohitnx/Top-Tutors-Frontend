@@ -1,4 +1,4 @@
-import { Socket } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 import {
   TutorSessionAcceptedEvent,
   NewAIMessageEvent,
@@ -13,49 +13,98 @@ import {
   NewHelpRequestEvent,
   CallSignalType,
 } from '../types';
-import { getSocket, connectSocket, onSocketConnect } from './socket';
 
-// Use the shared socket connection from socket.ts
+const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
+
+// ⭐ CRITICAL: This socket MUST connect to /tutor-session namespace
+// NOT the shared /messages socket!
 let tutorSessionSocket: Socket | null = null;
+let connectionListeners: Array<() => void> = [];
 
 // ============================================
 // Connection Management
 // ============================================
 
 export const connectTutorSessionSocket = (token: string): Socket => {
-  // Use the shared socket connection from socket.ts
-  const sharedSocket = getSocket();
-
-  // If we already have a connected shared socket, use it
-  if (sharedSocket?.connected) {
-    console.log('[TutorSessionSocket] Using existing shared socket connection');
-    tutorSessionSocket = sharedSocket;
-    return sharedSocket;
+  // If already connected to the correct namespace, return it
+  if (tutorSessionSocket?.connected) {
+    console.log('[TutorSessionSocket] Already connected to /tutor-session namespace');
+    return tutorSessionSocket;
   }
 
-  // If no shared socket exists, connect it
-  console.log('[TutorSessionSocket] No shared socket found, connecting...');
-  const newSocket = connectSocket(token);
-  tutorSessionSocket = newSocket;
-  return newSocket;
+  // Disconnect existing socket if any
+  if (tutorSessionSocket) {
+    console.log('[TutorSessionSocket] Disconnecting existing socket');
+    tutorSessionSocket.disconnect();
+  }
+
+  // ⭐ CRITICAL FIX: Connect to /tutor-session namespace, NOT /messages
+  console.log('[TutorSessionSocket] 🔌 Connecting to /tutor-session namespace...');
+  tutorSessionSocket = io(`${WS_URL}/tutor-session`, {
+    auth: { token },
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+    timeout: 20000,
+  });
+
+  tutorSessionSocket.on('connect', () => {
+    console.log('[TutorSessionSocket] ✅ Connected to /tutor-session, id:', tutorSessionSocket?.id);
+    connectionListeners.forEach(listener => listener());
+  });
+
+  tutorSessionSocket.on('disconnect', (reason) => {
+    console.log('[TutorSessionSocket] ❌ Disconnected from /tutor-session:', reason);
+  });
+
+  tutorSessionSocket.on('connect_error', (error) => {
+    console.error('[TutorSessionSocket] Connection error:', error.message);
+  });
+
+  // ⭐ Debug: Log all incoming events
+  tutorSessionSocket.onAny((eventName, ...args) => {
+    console.log('[TutorSessionSocket] 📥 Received event:', eventName, args);
+  });
+
+  tutorSessionSocket.on('reconnect', (attemptNumber) => {
+    console.log('[TutorSessionSocket] 🔄 Reconnected after', attemptNumber, 'attempts');
+    connectionListeners.forEach(listener => listener());
+  });
+
+  // Handle 'connected' event from server
+  tutorSessionSocket.on('connected', (data) => {
+    console.log('[TutorSessionSocket] ✅ Server confirmed connection:', data);
+  });
+
+  return tutorSessionSocket;
 };
 
 export const disconnectTutorSessionSocket = (): void => {
-  // Don't disconnect the shared socket - let socket.ts handle it
-  tutorSessionSocket = null;
+  if (tutorSessionSocket) {
+    console.log('[TutorSessionSocket] Disconnecting...');
+    tutorSessionSocket.disconnect();
+    tutorSessionSocket = null;
+  }
+  connectionListeners = [];
 };
 
 export const getTutorSessionSocket = (): Socket | null => {
-  // If we don't have a cached socket, get the shared one
-  if (!tutorSessionSocket) {
-    tutorSessionSocket = getSocket();
-  }
   return tutorSessionSocket;
 };
 
 export const onTutorSessionSocketConnect = (callback: () => void): (() => void) => {
-  // Use the shared socket's connection listener
-  return onSocketConnect(callback);
+  connectionListeners.push(callback);
+  
+  // If already connected, call immediately
+  if (tutorSessionSocket?.connected) {
+    callback();
+  }
+  
+  // Return unsubscribe function
+  return () => {
+    connectionListeners = connectionListeners.filter(l => l !== callback);
+  };
 };
 
 // ============================================
@@ -64,17 +113,18 @@ export const onTutorSessionSocketConnect = (callback: () => void): (() => void) 
 
 // Join a session room
 export const joinSession = (sessionId: string): void => {
-  console.log('[TutorSessionSocket] joinSession called, socket connected:', tutorSessionSocket?.connected, 'socket exists:', !!tutorSessionSocket);
+  console.log('[TutorSessionSocket] joinSession called, socket connected:', tutorSessionSocket?.connected);
   if (tutorSessionSocket?.connected) {
-    console.log('[TutorSessionSocket] Joining session:', sessionId);
+    console.log('[TutorSessionSocket] 🚪 Joining session:', sessionId);
     tutorSessionSocket.emit('joinSession', { sessionId });
   } else {
-    console.warn('[TutorSessionSocket] Cannot join session - socket not connected');
-    // Try to emit anyway in case connection is pending
-    if (tutorSessionSocket) {
-      console.log('[TutorSessionSocket] Attempting to emit joinSession despite not being connected');
-      tutorSessionSocket.emit('joinSession', { sessionId });
-    }
+    console.warn('[TutorSessionSocket] ⚠️ Cannot join session - socket not connected');
+    // Queue the join for when socket connects
+    const unsubscribe = onTutorSessionSocketConnect(() => {
+      console.log('[TutorSessionSocket] 🚪 Joining session (delayed):', sessionId);
+      tutorSessionSocket?.emit('joinSession', { sessionId });
+      unsubscribe();
+    });
   }
 };
 
@@ -91,6 +141,12 @@ export const subscribeToAISession = (aiSessionId: string): void => {
   if (tutorSessionSocket?.connected) {
     console.log('[TutorSessionSocket] Subscribing to AI session:', aiSessionId);
     tutorSessionSocket.emit('subscribeToAISession', { aiSessionId });
+  } else {
+    const unsubscribe = onTutorSessionSocketConnect(() => {
+      console.log('[TutorSessionSocket] Subscribing to AI session (delayed):', aiSessionId);
+      tutorSessionSocket?.emit('subscribeToAISession', { aiSessionId });
+      unsubscribe();
+    });
   }
 };
 
@@ -114,7 +170,7 @@ export const unsubscribeFromSession = (sessionId: string): void => {
 export const sendChatMessage = (sessionId: string, content: string): void => {
   console.log('[TutorSessionSocket] sendChatMessage called, socket connected:', tutorSessionSocket?.connected);
   if (tutorSessionSocket?.connected) {
-    console.log('[TutorSessionSocket] Sending chat message');
+    console.log('[TutorSessionSocket] 💬 Sending chat message');
     tutorSessionSocket.emit('sendChatMessage', { sessionId, content });
   } else {
     console.warn('[TutorSessionSocket] Cannot send chat message - socket not connected');
@@ -128,7 +184,10 @@ export const sendWhiteboardUpdate = (
   appState?: unknown
 ): void => {
   if (tutorSessionSocket?.connected) {
+    console.log('[TutorSessionSocket] 🎨 Sending whiteboard update:', elements.length, 'elements');
     tutorSessionSocket.emit('whiteboardUpdate', { sessionId, elements, appState });
+  } else {
+    console.warn('[TutorSessionSocket] Cannot send whiteboard update - socket not connected');
   }
 };
 
@@ -154,7 +213,7 @@ export const getChatHistory = (sessionId: string): void => {
 export const getWhiteboardData = (sessionId: string): void => {
   console.log('[TutorSessionSocket] getWhiteboardData called, socket connected:', tutorSessionSocket?.connected);
   if (tutorSessionSocket?.connected) {
-    console.log('[TutorSessionSocket] Requesting whiteboard data');
+    console.log('[TutorSessionSocket] 📋 Requesting whiteboard data for session:', sessionId);
     tutorSessionSocket.emit('getWhiteboardData', { sessionId });
   } else {
     console.warn('[TutorSessionSocket] Cannot get whiteboard data - socket not connected');
@@ -181,7 +240,7 @@ export const sendCallSignal = (sessionId: string, signal: CallSignalType): void 
 // ============================================
 
 // Connected event
-export const onConnected = (callback: (data: { role: string }) => void): void => {
+export const onConnected = (callback: (data: { userId: string; role: string }) => void): void => {
   tutorSessionSocket?.on('connected', callback);
 };
 
@@ -254,6 +313,7 @@ export const offChatMessage = (): void => {
 
 // Whiteboard Update
 export const onWhiteboardUpdate = (callback: (data: WhiteboardUpdateEvent) => void): void => {
+  console.log('[TutorSessionSocket] 👂 Registering whiteboardUpdate listener');
   tutorSessionSocket?.on('whiteboardUpdate', callback);
 };
 
@@ -308,6 +368,7 @@ export const offChatHistory = (): void => {
 
 // Whiteboard Data
 export const onWhiteboardData = (callback: (data: any) => void): void => {
+  console.log('[TutorSessionSocket] 👂 Registering whiteboardData listener');
   tutorSessionSocket?.on('whiteboardData', callback);
 };
 
@@ -317,6 +378,7 @@ export const offWhiteboardData = (): void => {
 
 // Join Session Response
 export const onJoinSession = (callback: (data: any) => void): void => {
+  console.log('[TutorSessionSocket] 👂 Registering joinSession listener');
   tutorSessionSocket?.on('joinSession', callback);
 };
 
@@ -346,6 +408,8 @@ export default {
   joinSession,
   leaveSession,
   subscribeToAISession,
+  subscribeToSession,
+  unsubscribeFromSession,
   sendChatMessage,
   sendWhiteboardUpdate,
   sendWhiteboardCursor,
@@ -389,4 +453,3 @@ export default {
   onError,
   offError,
 };
-
