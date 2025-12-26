@@ -168,6 +168,42 @@ export const tutorSessionApi = {
     );
     return response.data;
   },
+
+  // Save Daily.co meeting data (chat, recordings, etc.)
+  saveDailyMeetingData: async (
+    sessionId: string,
+    meetingData: {
+      roomUrl?: string;
+      chatMessages?: any[];
+      recordingUrl?: string;
+      duration?: number;
+      participants?: any[];
+    }
+  ): Promise<ApiResponse<{ success: boolean }>> => {
+    const response = await api.post<ApiResponse<{ success: boolean }>>(
+      `/tutor-session/${sessionId}/save-daily-data`,
+      { meetingData }
+    );
+    return response.data;
+  },
+
+  // Get Daily.co meeting data for a session
+  getDailyMeetingData: async (
+    sessionId: string
+  ): Promise<ApiResponse<{
+    roomUrl?: string;
+    chatMessages?: any[];
+    recordingUrl?: string;
+    duration?: number;
+    participants?: any[];
+    createdAt?: string;
+    updatedAt?: string;
+  }>> => {
+    const response = await api.get<ApiResponse<any>>(
+      `/tutor-session/${sessionId}/daily-meeting-data`
+    );
+    return response.data;
+  },
 };
 
 export default tutorSessionApi;

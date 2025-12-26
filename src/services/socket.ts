@@ -56,24 +56,41 @@ export const connectSocket = (token: string): Socket => {
 
   socket = io(`${WS_URL}/messages`, {
     auth: { token },
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 1000,
+    timeout: 20000,
+    forceNew: false,
   });
 
   socket.on('connect', () => {
-    console.log('[Socket] Connected, id:', socket?.id);
+    console.log('[Socket] ✅ Connected successfully, id:', socket?.id);
+    console.log('[Socket] Transport used:', socket.io.engine.transport.name);
     // Notify all connection listeners
     connectionListeners.forEach(listener => listener());
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('[Socket] Disconnected:', reason);
+    console.log('[Socket] ❌ Disconnected:', reason);
+  });
+
+  // Debug transport upgrades/downgrades
+  socket.io.engine.on('upgrade', () => {
+    console.log('[Socket] 🔄 Transport upgraded to:', socket.io.engine.transport.name);
+  });
+
+  socket.io.engine.on('upgradeError', (error) => {
+    console.log('[Socket] ❌ Transport upgrade failed:', error);
   });
 
   socket.on('connect_error', (error) => {
-    console.error('[Socket] Connection error:', error.message);
+    console.error('[Socket] Connection error:', error.message, error);
+    console.error('[Socket] Connection details:', {
+      url: `${WS_URL}/messages`,
+      token: token ? 'present' : 'missing',
+      transport: socket.io.engine.transport.name
+    });
   });
 
   // DEBUG: Log ALL incoming events to see what backend is sending

@@ -1,25 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Phone, Video, MessageSquare, Pencil, ChevronUp, ChevronDown,
-  Send, Share2, LogOut, Maximize2, Minimize2
+  Video, Pencil, ChevronUp, ChevronDown,
+  Share2, LogOut, Maximize2, Minimize2
 } from 'lucide-react';
 import {
   connectTutorSessionSocket,
   joinSession,
   leaveSession,
-  sendChatMessage,
-  sendTypingIndicator,
   sendWhiteboardUpdate,
   onChatMessage,
   offChatMessage,
   onChatHistory,
   offChatHistory,
-  onWhiteboardUpdate,
-  offWhiteboardUpdate,
-  onWhiteboardData,
-  offWhiteboardData,
-  onUserTyping,
-  offUserTyping,
   onSessionStatusChanged,
   offSessionStatusChanged,
   onCallSignal,
@@ -29,8 +21,6 @@ import { tutorSessionApi } from '../../api';
 import {
   DailyRoom,
   TutorStudentChatMessage,
-  WhiteboardUpdateEvent,
-  TutorSessionTypingEvent,
   SessionStatusChangedEvent,
 } from '../../types';
 import { FloatingCallIndicator } from './AudioCall';
@@ -70,16 +60,10 @@ export function StudentActiveSession({
   const [fullscreenMode, setFullscreenMode] = useState<FullscreenMode>(null);
   const [isInVideoCall, setIsInVideoCall] = useState(false);
   const [chatMessages, setChatMessages] = useState<TutorStudentChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [tutorIsTyping, setTutorIsTyping] = useState(false);
-  const [whiteboardData, setWhiteboardData] = useState<{ elements: unknown[] } | null>(null);
-  const [unreadMessages, setUnreadMessages] = useState(0);
   const [sessionEnded, setSessionEnded] = useState(false);
   
   // Refs
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Join session room on mount (socket connection should already be established by parent)
   useEffect(() => {
@@ -109,9 +93,6 @@ export function StudentActiveSession({
     // Chat message from tutor
     const handleChatMessage = (message: TutorStudentChatMessage) => {
       setChatMessages(prev => [...prev, message]);
-      if (viewMode !== 'chat') {
-        setUnreadMessages(prev => prev + 1);
-      }
       toast.success(`New message from ${tutorName}`);
     };
 
@@ -122,26 +103,8 @@ export function StudentActiveSession({
       }
     };
 
-    // Whiteboard update from tutor
-    const handleWhiteboardUpdate = (data: WhiteboardUpdateEvent) => {
-      if (data.sessionId === tutorSessionId) {
-        setWhiteboardData({ elements: data.elements });
-      }
-    };
+    // Whiteboard events are handled directly by CollaborativeWhiteboard component
 
-    // Whiteboard data loaded
-    const handleWhiteboardData = (data: any) => {
-      if (data.sessionId === tutorSessionId && data.whiteboardEnabled && data.whiteboardData) {
-        setWhiteboardData(data.whiteboardData);
-      }
-    };
-
-    // Tutor typing
-    const handleUserTyping = (data: TutorSessionTypingEvent) => {
-      if (data.sessionId === tutorSessionId && data.role === 'tutor') {
-        setTutorIsTyping(data.isTyping);
-      }
-    };
 
     // Session status changed
     const handleSessionStatusChanged = (data: SessionStatusChangedEvent) => {
@@ -170,9 +133,6 @@ export function StudentActiveSession({
     console.log('[StudentActiveSession] Adding event listeners');
     onChatMessage(handleChatMessage);
     onChatHistory(handleChatHistory);
-    onWhiteboardUpdate(handleWhiteboardUpdate);
-    onWhiteboardData(handleWhiteboardData);
-    onUserTyping(handleUserTyping);
     onSessionStatusChanged(handleSessionStatusChanged);
     onCallSignal(handleCallSignal);
 
@@ -180,9 +140,6 @@ export function StudentActiveSession({
       console.log('[StudentActiveSession] Removing event listeners');
       offChatMessage();
       offChatHistory();
-      offWhiteboardUpdate();
-      offWhiteboardData();
-      offUserTyping();
       offSessionStatusChanged();
       offCallSignal();
     };
@@ -193,46 +150,7 @@ export function StudentActiveSession({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  // Clear unread when opening chat
-  useEffect(() => {
-    if (viewMode === 'chat') {
-      setUnreadMessages(0);
-    }
-  }, [viewMode]);
 
-  // Send chat message
-  const handleSendMessage = useCallback(() => {
-    if (!chatInput.trim()) return;
-    
-    sendChatMessage(tutorSessionId, chatInput.trim());
-    setChatInput('');
-    
-    // Clear typing indicator
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-    sendTypingIndicator(tutorSessionId, false);
-    setIsTyping(false);
-  }, [tutorSessionId, chatInput]);
-
-  // Handle typing
-  const handleTyping = useCallback((value: string) => {
-    setChatInput(value);
-    
-    if (!isTyping) {
-      setIsTyping(true);
-      sendTypingIndicator(tutorSessionId, true);
-    }
-    
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-    
-    typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      sendTypingIndicator(tutorSessionId, false);
-    }, 2000);
-  }, [tutorSessionId, isTyping]);
 
 
   // Toggle view mode
@@ -310,20 +228,7 @@ export function StudentActiveSession({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            {/* Video Call Status */}
-            {dailyRoom && (
-              <button
-                onClick={() => setIsInVideoCall(!isInVideoCall)}
-                className={`p-2 rounded-lg transition-colors ${
-                  isInVideoCall
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-gray-700 text-emerald-400 hover:bg-gray-600'
-                }`}
-                title={isInVideoCall ? 'Leave video call' : 'Join video call'}
-              >
-                <Video className="w-5 h-5" />
-              </button>
-            )}
+         
 
             {/* Whiteboard */}
             <button
@@ -338,23 +243,7 @@ export function StudentActiveSession({
               <Pencil className="w-5 h-5" />
             </button>
 
-            {/* Chat */}
-            <button
-              onClick={() => toggleView('chat')}
-              className={`p-2 rounded-lg transition-colors relative ${
-                viewMode === 'chat'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-700 text-blue-400 hover:bg-gray-600'
-              }`}
-              title="Chat with tutor"
-            >
-              <MessageSquare className="w-5 h-5" />
-              {unreadMessages > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-xs flex items-center justify-center text-white">
-                  {unreadMessages > 9 ? '9+' : unreadMessages}
-                </span>
-              )}
-            </button>
+          
 
             {/* Fullscreen Toggle */}
             {fullscreenMode && (
@@ -441,7 +330,7 @@ export function StudentActiveSession({
           )}
 
           {/* Audio Call View */}
-          {(viewMode === 'call' || fullscreenMode === 'call') && isInCall && dailyRoom && (
+          {(viewMode === 'call' || fullscreenMode === 'call') && isInVideoCall && dailyRoom && (
             <div className={`space-y-4 ${fullscreenMode ? 'p-4 h-full' : ''}`}>
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-white flex items-center gap-2">
@@ -507,9 +396,7 @@ export function StudentActiveSession({
                 )}
               </div>
               <CollaborativeWhiteboard
-                key={`whiteboard-${fullscreenMode ? 'fullscreen' : 'normal'}`}
                 sessionId={tutorSessionId}
-                initialData={whiteboardData || undefined}
                 className={fullscreenMode ? 'h-[800px]' : 'h-[500px]'}
                 onSave={(elements) => {
                   // Send whiteboard update to tutor
@@ -519,93 +406,6 @@ export function StudentActiveSession({
             </div>
           )}
 
-          {/* Chat View */}
-          {(viewMode === 'chat' || fullscreenMode === 'chat') && (
-            <div className={`space-y-3 ${fullscreenMode ? 'p-4 h-full flex flex-col' : ''}`}>
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-blue-400" />
-                  Chat with {tutorName}
-                </h3>
-                {!fullscreenMode && (
-                  <button
-                    onClick={() => toggleFullscreen('chat')}
-                    className="p-1 text-gray-400 hover:text-white rounded transition-colors"
-                    title="Fullscreen"
-                  >
-                    <Maximize2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Messages */}
-              <div className={`${fullscreenMode ? 'flex-1' : 'h-[300px]'} overflow-y-auto bg-gray-900/50 rounded-xl p-3 space-y-3`}>
-                {chatMessages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                    <MessageSquare className="w-8 h-8 mb-2" />
-                    <p className="text-sm">No messages yet</p>
-                    <p className="text-xs">Start a conversation with your tutor</p>
-                  </div>
-                ) : (
-                  chatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.role === 'student' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className={`max-w-[80%] ${
-                        msg.role === 'student'
-                          ? 'bg-blue-500/20 text-gray-200'
-                          : 'bg-gray-800 text-gray-300'
-                      } rounded-lg px-3 py-2`}>
-                        {msg.role === 'tutor' && (
-                          <p className="text-xs text-emerald-400 mb-1">{msg.senderName}</p>
-                        )}
-                        <p className="text-sm">{msg.content}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-
-                {/* Typing indicator */}
-                {tutorIsTyping && (
-                  <div className="flex items-center gap-2 text-gray-500 text-sm">
-                    <span className="flex gap-1">
-                      <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
-                      <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                      <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    </span>
-                    <span>{tutorName} is typing...</span>
-                  </div>
-                )}
-
-                <div ref={chatEndRef} />
-              </div>
-
-              {/* Input */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => handleTyping(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder="Type a message..."
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50"
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!chatInput.trim()}
-                  className="p-2 bg-blue-500 hover:bg-blue-400 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -616,6 +416,7 @@ export function StudentActiveSession({
         isJoined={isInVideoCall}
         onJoinStateChange={setIsInVideoCall}
         disabled={!dailyRoom}
+        sessionId={tutorSessionId}
       />
     </div>
   );

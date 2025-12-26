@@ -3,27 +3,31 @@ import { Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { Trash2 } from 'lucide-react';
 import {
+  connectTutorSessionSocket,
+  getTutorSessionSocket,
+  onTutorSessionSocketConnect,
+  joinSession,
   sendWhiteboardUpdate,
   sendWhiteboardCursor,
   getWhiteboardData,
   onWhiteboardUpdate,
-  offWhiteboardUpdate,
   onWhiteboardData,
+  offWhiteboardUpdate,
   offWhiteboardData,
-  onWhiteboardCursor,
-  offWhiteboardCursor,
+  onJoinSession,
+  offJoinSession,
 } from '../../services/tutorSessionSocket';
-import { WhiteboardUpdateEvent, WhiteboardCursorEvent } from '../../types';
+import { WhiteboardUpdateEvent } from '../../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ExcalidrawImperativeAPI = any;
 
 interface CollaborativeWhiteboardProps {
   sessionId: string;
-  initialData?: { elements?: ExcalidrawElement[] };
+  initialData?: { elements?: any[] };
   readOnly?: boolean;
   className?: string;
-  onSave?: (elements: ExcalidrawElement[]) => void;
+  onSave?: (elements: any[]) => void;
 }
 
 interface RemoteCursor {
@@ -43,58 +47,106 @@ export function CollaborativeWhiteboard({
   const excalidrawRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastSentElementsRef = useRef<string>('');
-  
+
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
 
-  // Load existing whiteboard data and handle incoming updates
+  // Connect to shared socket and handle whiteboard events
   useEffect(() => {
-    // Load existing whiteboard data
-    getWhiteboardData(sessionId);
+    console.log('[CollaborativeWhiteboard] 🔌 Using shared socket for session:', sessionId);
 
+    const token = localStorage.getItem('accessToken') || localStorage.getItem('authToken');
+    if (!token) {
+      console.error('[CollaborativeWhiteboard] ❌ No auth token found');
+      return;
+    }
+
+    // Ensure socket is connected
+    const connectAndJoin = () => {
+      const socket = getTutorSessionSocket();
+      if (socket?.connected) {
+        console.log('[CollaborativeWhiteboard] ✅ Socket connected, joining session');
+        joinSession(sessionId);
+        setIsConnected(true);
+        setConnectionError(false);
+      } else {
+        console.log('[CollaborativeWhiteboard] 🔄 Socket not connected, waiting...');
+        // Wait for socket to connect with timeout
+        const unsubscribe = onTutorSessionSocketConnect(() => {
+          console.log('[CollaborativeWhiteboard] ✅ Socket connected via listener, joining session');
+          joinSession(sessionId);
+          setIsConnected(true);
+          setConnectionError(false);
+          unsubscribe();
+        });
+
+        // Set timeout for connection attempt
+        setTimeout(() => {
+          if (!socket?.connected) {
+            console.warn('[CollaborativeWhiteboard] ⚠️ Socket connection timeout - enabling offline mode');
+            setConnectionError(true);
+            setIsConnected(false);
+            unsubscribe();
+          }
+        }, 5000);
+      }
+    };
+
+    // Try to connect the socket if it's not connected
+    const existingSocket = getTutorSessionSocket();
+    if (!existingSocket || !existingSocket.connected) {
+      console.log('[CollaborativeWhiteboard] 🔌 Connecting tutor session socket...');
+      connectTutorSessionSocket(token);
+    }
+
+    connectAndJoin();
+
+    // Handle whiteboard data response
+    const handleWhiteboardData = (data: any) => {
+      console.log('[CollaborativeWhiteboard] 📋 Received whiteboard data:', data);
+      if (data.sessionId === sessionId && data.whiteboardEnabled && data.whiteboardData && excalidrawRef.current) {
+        excalidrawRef.current.updateScene({
+          elements: data.whiteboardData.elements || [],
+          appState: data.whiteboardData.appState || { viewBackgroundColor: '#ffffff' }
+        });
+      }
+    };
+
+    // Handle live updates from other users
     const handleWhiteboardUpdate = (data: WhiteboardUpdateEvent) => {
-      if (data.sessionId !== sessionId) return;
-
-      // Avoid echo - don't apply our own updates
-      const elementsJson = JSON.stringify(data.elements);
-      if (elementsJson === lastSentElementsRef.current) return;
+      console.log('[CollaborativeWhiteboard] 🔄 Whiteboard update from:', data.senderId, 'session:', data.sessionId);
+      if (data.sessionId !== sessionId) return; // Only handle updates for this session
 
       if (excalidrawRef.current) {
         excalidrawRef.current.updateScene({
-          elements: data.elements as ExcalidrawElement[],
+          elements: data.elements,
+          appState: data.appState
         });
       }
     };
 
-    const handleWhiteboardData = (data: any) => {
-      if (data.sessionId !== sessionId) return;
-
-      if (data.whiteboardEnabled && data.whiteboardData && excalidrawRef.current) {
-        excalidrawRef.current.updateScene(data.whiteboardData);
+    // Handle session join response
+    const handleJoinSession = (response: any) => {
+      console.log('[CollaborativeWhiteboard] ✅ Joined session:', response);
+      if (response.sessionId === sessionId) {
+        // Get whiteboard data after joining
+        console.log('[CollaborativeWhiteboard] 📋 Getting whiteboard data...');
+        getWhiteboardData(sessionId);
       }
     };
 
-    const handleWhiteboardCursor = (data: WhiteboardCursorEvent) => {
-      if (data.sessionId !== sessionId) return;
-
-      setRemoteCursors(prev => {
-        const updated = new Map(prev);
-        updated.set(data.userId, {
-          x: data.x,
-          y: data.y,
-          lastUpdate: Date.now(),
-        });
-        return updated;
-      });
-    };
-
-    onWhiteboardUpdate(handleWhiteboardUpdate);
+    // Set up event listeners
     onWhiteboardData(handleWhiteboardData);
-    onWhiteboardCursor(handleWhiteboardCursor);
+    onWhiteboardUpdate(handleWhiteboardUpdate);
+    onJoinSession(handleJoinSession);
 
     return () => {
-      offWhiteboardUpdate();
+      console.log('[CollaborativeWhiteboard] 🔌 Removing whiteboard event listeners');
       offWhiteboardData();
-      offWhiteboardCursor();
+      offWhiteboardUpdate();
+      offJoinSession();
+      // Don't disconnect socket as it's shared
     };
   }, [sessionId]);
 
@@ -117,8 +169,7 @@ export function CollaborativeWhiteboard({
   }, []);
 
   // Handle local changes
-  const handleChange = useCallback((elements: readonly ExcalidrawElement[]) => {
-
+  const handleChange = useCallback((elements: readonly any[], appState?: any) => {
     if (readOnly) return;
 
     // Debounce and avoid sending identical updates
@@ -126,19 +177,31 @@ export function CollaborativeWhiteboard({
     if (elementsJson === lastSentElementsRef.current) return;
     lastSentElementsRef.current = elementsJson;
 
-    // Send real-time update via socket
-    const isConnected = sendWhiteboardUpdate(sessionId, elements as ExcalidrawElement[]);
-    console.log('[CollaborativeWhiteboard] Socket send result:', isConnected);
-
-    // Also save to backend for persistence
-    if (onSave) {
-      onSave(elements as ExcalidrawElement[]);
+    // Try to send real-time update if connected
+    if (isConnected && !connectionError) {
+      console.log('[CollaborativeWhiteboard] ✏️ Sending whiteboard update, elements count:', elements.length);
+      try {
+        sendWhiteboardUpdate(
+          sessionId,
+          elements.filter(el => !el.isDeleted),
+          appState
+        );
+      } catch (error) {
+        console.warn('[CollaborativeWhiteboard] Failed to send update via socket:', error);
+      }
+    } else if (connectionError) {
+      console.log('[CollaborativeWhiteboard] 📝 Working in offline mode - changes saved locally');
     }
-  }, [sessionId, readOnly, onSave]);
+
+    // Always save to backend for persistence (if available)
+    if (onSave) {
+      onSave(elements as any[]);
+    }
+  }, [sessionId, readOnly, isConnected, connectionError, onSave]);
 
   // Handle pointer move for cursor sharing
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (readOnly) return;
+    if (readOnly || !isConnected || connectionError) return;
 
     const container = containerRef.current;
     if (!container) return;
@@ -153,20 +216,32 @@ export function CollaborativeWhiteboard({
 
     // Only send cursor updates if within bounds
     if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
-      sendWhiteboardCursor(sessionId, x, y);
+      try {
+        sendWhiteboardCursor(sessionId, x, y);
+      } catch (error) {
+        console.warn('[CollaborativeWhiteboard] Failed to send cursor update:', error);
+      }
     }
-  }, [sessionId, readOnly]);
+  }, [sessionId, readOnly, isConnected, connectionError]);
 
 
   // Clear whiteboard
   const handleClear = useCallback(() => {
     if (!excalidrawRef.current || readOnly) return;
-    
+
     excalidrawRef.current.updateScene({
       elements: [],
     });
-    sendWhiteboardUpdate(sessionId, []);
-  }, [sessionId, readOnly]);
+
+    // Try to send clear update if connected
+    if (isConnected && !connectionError) {
+      try {
+        sendWhiteboardUpdate(sessionId, [], { viewBackgroundColor: '#ffffff' });
+      } catch (error) {
+        console.warn('[CollaborativeWhiteboard] Failed to send clear update:', error);
+      }
+    }
+  }, [sessionId, readOnly, isConnected, connectionError]);
 
 
   return (
@@ -175,6 +250,18 @@ export function CollaborativeWhiteboard({
       className={`relative w-full ${className}`}
       onPointerMove={handlePointerMove}
     >
+      {/* Connection Status for readonly mode */}
+      {readOnly && (
+        <div className={`absolute top-4 right-4 z-10 px-3 py-1 rounded text-xs ${
+          isConnected ? 'bg-green-500/20 text-green-400' :
+          connectionError ? 'bg-yellow-500/20 text-yellow-400' :
+          'bg-red-500/20 text-red-400'
+        }`}>
+          {isConnected ? '🟢 Connected' :
+           connectionError ? '🟡 Offline Mode' :
+           '🔴 Connecting...'}
+        </div>
+      )}
       {/* Horizontal Toolbar at Top */}
       {!readOnly && (
         <div className="flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700">
@@ -188,8 +275,20 @@ export function CollaborativeWhiteboard({
               Clear
             </button>
           </div>
-          <div className="text-xs text-gray-400">
-            Collaborative Whiteboard
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-gray-400">
+              Collaborative Whiteboard
+            </div>
+            {/* Connection Status */}
+            <div className={`px-2 py-1 rounded text-xs ${
+              isConnected ? 'bg-green-500/20 text-green-400' :
+              connectionError ? 'bg-yellow-500/20 text-yellow-400' :
+              'bg-red-500/20 text-red-400'
+            }`}>
+              {isConnected ? '🟢 Connected' :
+               connectionError ? '🟡 Offline Mode' :
+               '🔴 Connecting...'}
+            </div>
           </div>
         </div>
       )}
@@ -214,8 +313,6 @@ export function CollaborativeWhiteboard({
               toggleTheme: false,
               saveAsImage: false,
             },
-            // Hide the default toolbar to prevent it from taking full page
-            toolbar: false,
           }}
         />
       </div>

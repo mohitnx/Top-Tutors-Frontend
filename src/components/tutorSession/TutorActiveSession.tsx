@@ -42,6 +42,16 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import toast from 'react-hot-toast';
 
+// Combined chat message interface for AI + Video chat
+interface CombinedChatMessage {
+  id: string;
+  role: 'USER' | 'ASSISTANT' | 'TUTOR' | 'STUDENT';
+  content: string;
+  createdAt: string;
+  source: 'ai_chat' | 'video_call';
+  attachments?: any[];
+}
+
 interface TutorActiveSessionProps {
   sessionData: AcceptSessionResponse;
   onEndSession: () => void;
@@ -60,6 +70,7 @@ export function TutorActiveSession({
   const [isInCall, setIsInCall] = useState(false);
   const [aiChatHistory, setAiChatHistory] = useState<TutorSessionChatMessage[]>(initialChatHistory || []);
   const [tutorStudentChat, setTutorStudentChat] = useState<TutorStudentChatMessage[]>([]);
+  const [combinedChatHistory, setCombinedChatHistory] = useState<CombinedChatMessage[]>([]);
   const [liveSharingEnabled, setLiveSharingEnabled] = useState(summary?.liveSharingEnabled || false);
   const [chatMessage, setChatMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -82,6 +93,19 @@ export function TutorActiveSession({
   // Join session room on mount (wait for socket connection)
   useEffect(() => {
     if (!session?.id) return;
+
+    const token = localStorage.getItem('accessToken') || localStorage.getItem('authToken');
+    if (!token) {
+      console.error('[TutorActiveSession] No auth token found');
+      return;
+    }
+
+    // Ensure socket is connected
+    const existingSocket = getTutorSessionSocket();
+    if (!existingSocket || !existingSocket.connected) {
+      console.log('[TutorActiveSession] Connecting tutor session socket...');
+      connectTutorSessionSocket(token);
+    }
 
     const joinSessionWhenReady = () => {
       console.log('[TutorActiveSession] Joining session:', session.id);
@@ -151,6 +175,9 @@ export function TutorActiveSession({
         if (data.liveSharingEnabled) {
           refreshChatHistory();
         }
+
+        // Always load combined chat history when consent changes
+        loadCombinedChatHistory();
       }
     };
 
@@ -239,6 +266,75 @@ export function TutorActiveSession({
       console.error('Failed to refresh chat history:', error);
     }
   }, [session.id]);
+
+  // Load combined chat history (AI + Video chat)
+  const loadCombinedChatHistory = useCallback(async () => {
+    try {
+      console.log('[TutorActiveSession] Loading combined chat history');
+
+      // Get AI chat history
+      const aiChatResponse = await tutorSessionApi.getChatHistory(session.id);
+      const aiMessages: CombinedChatMessage[] = aiChatResponse.data.messages.map((msg: any) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        createdAt: msg.createdAt,
+        source: 'ai_chat' as const,
+        attachments: msg.attachments
+      }));
+
+      // Get Daily.co meeting data (including webhook-captured chat)
+      let videoMessages: CombinedChatMessage[] = [];
+      try {
+        const meetingDataResponse = await tutorSessionApi.getDailyMeetingData(session.id);
+        const meetingData = meetingDataResponse.data;
+
+        if (meetingData?.chatMessages && meetingData.chatMessages.length > 0) {
+          videoMessages = meetingData.chatMessages.map((msg: any, index: number) => ({
+            id: `video-${msg.timestamp || msg.id || index}`,
+            role: msg.sender === 'tutor' || msg.role === 'tutor' ? 'TUTOR' : 'STUDENT',
+            content: msg.message || msg.content || msg.text,
+            createdAt: msg.timestamp || msg.createdAt || new Date().toISOString(),
+            source: 'video_call' as const
+          }));
+          console.log('[TutorActiveSession] Loaded webhook chat messages:', videoMessages.length);
+        } else {
+          console.log('[TutorActiveSession] No webhook chat messages available yet');
+        }
+      } catch (meetingError: any) {
+        console.warn('[TutorActiveSession] Could not load Daily.co meeting data:', meetingError);
+        // Show user-friendly message about webhook setup
+        if (meetingError?.response?.status === 404) {
+          console.info('[TutorActiveSession] No meeting data found - webhooks may not be configured yet');
+        }
+      }
+
+      // Combine and sort by timestamp
+      const combinedMessages = [...aiMessages, ...videoMessages]
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      setCombinedChatHistory(combinedMessages);
+      console.log('[TutorActiveSession] Combined chat history loaded:', combinedMessages.length, 'messages');
+    } catch (error) {
+      console.error('[TutorActiveSession] Failed to load combined chat history:', error);
+      toast.error('Failed to load complete chat history');
+    }
+  }, [session.id]);
+
+  // Auto-refresh combined chat history periodically (for webhook updates)
+  useEffect(() => {
+    if (!session?.id) return;
+
+    // Load immediately
+    loadCombinedChatHistory();
+
+    // Set up periodic refresh every 30 seconds to catch webhook updates
+    const intervalId = setInterval(() => {
+      loadCombinedChatHistory();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [session?.id, loadCombinedChatHistory]);
 
   // Send chat message
   const handleSendMessage = useCallback(() => {
@@ -343,7 +439,6 @@ export function TutorActiveSession({
         <div className="flex-1 p-4 overflow-visible">
           {fullscreenMode === 'whiteboard' && (
             <CollaborativeWhiteboard
-              key="whiteboard-fullscreen"
               sessionId={session.id}
               className="h-[800px]"
               onSave={(elements) => {
@@ -549,6 +644,7 @@ export function TutorActiveSession({
               token={dailyRoom.token}
               isJoined={isInCall}
               onJoinStateChange={setIsInCall}
+              sessionId={session.id}
             />
           )}
 
@@ -588,35 +684,157 @@ export function TutorActiveSession({
             </div>
           </div>
 
-          {/* Whiteboard */}
-          <div className="bg-[#1a1a1a] overflow-visible">
-            <button
-              onClick={() => setShowWhiteboard(!showWhiteboard)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-            >
+          {/* Combined Chat History */}
+          <div className="bg-[#1a1a1a] rounded-xl border border-gray-800 p-4">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-fuchsia-400" />
-                <h2 className="text-lg font-semibold text-white">Whiteboard</h2>
+                <MessageSquare className="w-5 h-5 text-blue-400" />
+                <h2 className="text-lg font-semibold text-white">Complete Chat History</h2>
+                {combinedChatHistory.length > 0 && (
+                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full">
+                    {combinedChatHistory.length}
+                  </span>
+                )}
+                {/* Webhook status indicator */}
+                {combinedChatHistory.some(msg => msg.source === 'video_call') ? (
+                  <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
+                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+                    Webhooks Active
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">
+                    <div className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                    Webhooks Pending
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => toggleFullscreen('whiteboard')}
+                  onClick={loadCombinedChatHistory}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  title="Refresh chat history"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Webhook setup notice */}
+            {combinedChatHistory.filter(msg => msg.source === 'video_call').length === 0 && (
+              <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <div className="text-sm">
+                    <p className="text-amber-400 font-medium mb-1">🎯 Enable Video Call Chat Capture</p>
+                    <div className="text-amber-300 text-xs space-y-1">
+                      <p><strong>Backend Action Required:</strong> Configure Daily.co webhooks to capture in-meeting chat messages.</p>
+                      <p><strong>What's working:</strong> Call duration tracking, room URLs, AI chat display</p>
+                      <p><strong>What's missing:</strong> Live video call chat messages (requires webhook setup)</p>
+                      <p className="text-amber-200 mt-2"><em>This panel will automatically update when webhooks are configured!</em></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="max-h-96 overflow-y-auto space-y-3">
+              {combinedChatHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                  <MessageSquare className="w-8 h-8 mb-2" />
+                  <p className="text-sm">No chat history yet</p>
+                  <p className="text-xs">Chat messages from AI and video calls will appear here</p>
+                </div>
+              ) : (
+                combinedChatHistory.map((message) => (
+                  <div key={message.id} className={`flex ${message.role === 'USER' || message.role === 'STUDENT' ? 'justify-start' : 'justify-end'}`}>
+                    <div className={`max-w-[85%] ${
+                      message.role === 'USER' || message.role === 'STUDENT'
+                        ? 'order-1'
+                        : 'order-2'
+                    }`}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          message.source === 'ai_chat'
+                            ? 'bg-violet-500/20 text-violet-300'
+                            : 'bg-blue-500/20 text-blue-300'
+                        }`}>
+                          {message.source === 'ai_chat' ? '🤖 AI' : '📹 Video'}
+                        </span>
+                        <span className={`text-xs ${
+                          message.role === 'USER' || message.role === 'STUDENT'
+                            ? 'text-violet-400'
+                            : 'text-emerald-400'
+                        }`}>
+                          {message.role === 'USER' ? '👤 Student (AI)' :
+                           message.role === 'STUDENT' ? '👤 Student (Video)' :
+                           message.role === 'ASSISTANT' ? '🤖 AI' : '👨‍🏫 Tutor (Video)'}
+                        </span>
+                      </div>
+                      <div className={`rounded-lg px-3 py-2 text-sm ${
+                        message.role === 'USER' || message.role === 'STUDENT'
+                          ? 'bg-gray-800 text-gray-200'
+                          : 'bg-blue-500/20 text-gray-200'
+                      }`}>
+                        {message.source === 'ai_chat' && message.role === 'ASSISTANT' ? (
+                          <div className="prose prose-invert prose-sm max-w-none">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {message.content}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {new Date(message.createdAt).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Whiteboard */}
+          <div className="bg-[#1a1a1a] overflow-visible">
+            <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors">
+              <button
+                onClick={() => setShowWhiteboard(!showWhiteboard)}
+                className="flex items-center gap-2 flex-1"
+              >
+                <Sparkles className="w-5 h-5 text-fuchsia-400" />
+                <h2 className="text-lg font-semibold text-white">Whiteboard</h2>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleFullscreen('whiteboard');
+                  }}
                   className="p-1 text-gray-400 hover:text-white rounded transition-colors"
                   title="Fullscreen"
                 >
                   <Maximize2 className="w-4 h-4" />
                 </button>
-                {showWhiteboard ? (
-                  <ChevronUp className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-400" />
-                )}
+                <button
+                  onClick={() => setShowWhiteboard(!showWhiteboard)}
+                  className="p-1 text-gray-400 hover:text-white rounded transition-colors"
+                >
+                  {showWhiteboard ? (
+                    <ChevronUp className="w-5 h-5" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5" />
+                  )}
+                </button>
               </div>
-            </button>
+            </div>
 
             {showWhiteboard && (
               <CollaborativeWhiteboard
-                key="whiteboard-normal"
                 sessionId={session.id}
                 className="h-[500px]"
                 onSave={(elements) => {
@@ -631,11 +849,11 @@ export function TutorActiveSession({
         <div className="space-y-4">
           {/* AI Chat History */}
           <div className="bg-[#1a1a1a] rounded-xl border border-gray-800 overflow-hidden">
-            <button
-              onClick={() => setShowAiChat(!showAiChat)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors">
+              <button
+                onClick={() => setShowAiChat(!showAiChat)}
+                className="flex items-center gap-2 flex-1"
+              >
                 <Sparkles className="w-5 h-5 text-violet-400" />
                 <h2 className="font-semibold text-white">Student's AI Chat</h2>
                 {liveSharingEnabled ? (
@@ -649,22 +867,30 @@ export function TutorActiveSession({
                     Snapshot
                   </span>
                 )}
-              </div>
+              </button>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => toggleFullscreen('ai-chat')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleFullscreen('ai-chat');
+                  }}
                   className="p-1 text-gray-400 hover:text-white rounded transition-colors"
                   title="Fullscreen"
                 >
                   <Maximize2 className="w-4 h-4" />
                 </button>
-                {showAiChat ? (
-                  <ChevronUp className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-400" />
-                )}
+                <button
+                  onClick={() => setShowAiChat(!showAiChat)}
+                  className="p-1 text-gray-400 hover:text-white rounded transition-colors"
+                >
+                  {showAiChat ? (
+                    <ChevronUp className="w-5 h-5" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5" />
+                  )}
+                </button>
               </div>
-            </button>
+            </div>
             
             {showAiChat && (
               <div className="border-t border-gray-800 h-[400px] overflow-y-auto p-4 space-y-4">
@@ -699,104 +925,7 @@ export function TutorActiveSession({
             )}
           </div>
 
-          {/* Tutor-Student Chat */}
-          <div className="bg-[#1a1a1a] rounded-xl border border-gray-800 overflow-hidden">
-            <button
-              onClick={() => setShowTutorChat(!showTutorChat)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-emerald-400" />
-                <h2 className="font-semibold text-white">Direct Chat</h2>
-                {tutorStudentChat.length > 0 && (
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded">
-                    {tutorStudentChat.length}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => toggleFullscreen('tutor-chat')}
-                  className="p-1 text-gray-400 hover:text-white rounded transition-colors"
-                  title="Fullscreen"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                </button>
-                {showTutorChat ? (
-                  <ChevronUp className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-400" />
-                )}
-              </div>
-            </button>
-            
-            {showTutorChat && (
-              <div className="border-t border-gray-800">
-                {/* Messages */}
-                <div className="h-[300px] overflow-y-auto p-4 space-y-3">
-                  {tutorStudentChat.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <MessageSquare className="w-8 h-8 mb-2" />
-                      <p className="text-sm">No messages yet</p>
-                    </div>
-                  ) : (
-                    tutorStudentChat.map((msg) => (
-                      <div key={msg.id} className={`flex ${msg.role === 'tutor' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] ${
-                          msg.role === 'tutor'
-                            ? 'bg-emerald-500/20 text-gray-200'
-                            : 'bg-gray-800 text-gray-300'
-                        } rounded-lg px-3 py-2`}>
-                          <p className="text-xs text-gray-500 mb-1">{msg.senderName}</p>
-                          <p className="text-sm">{msg.content}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  
-                  {/* Typing indicator */}
-                  {studentIsTyping && (
-                    <div className="flex items-center gap-2 text-gray-500 text-sm">
-                      <span className="flex gap-1">
-                        <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
-                        <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                        <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                      </span>
-                      <span>Student is typing...</span>
-                    </div>
-                  )}
-                  
-                  <div ref={tutorChatEndRef} />
-                </div>
-
-                {/* Input */}
-                <div className="p-3 border-t border-gray-800">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={chatMessage}
-                      onChange={(e) => handleTyping(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendMessage();
-                        }
-                      }}
-                      placeholder="Type a message..."
-                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                    />
-                    <button
-                      onClick={handleSendMessage}
-                      disabled={!chatMessage.trim()}
-                      className="p-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+        
         </div>
       </div>
     </div>
