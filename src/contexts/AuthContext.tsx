@@ -10,7 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, role: Role) => Promise<void>;
+  register: (email: string, password: string, confirmPassword: string, name: string, role: Role) => Promise<void>;
   logout: () => Promise<void>;
   setAuthFromCallback: (accessToken: string, refreshToken: string) => Promise<void>;
   hasRole: (roles: Role | Role[]) => boolean;
@@ -84,10 +84,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const register = useCallback(async (email: string, password: string, name: string, role: Role) => {
+  const register = useCallback(async (email: string, password: string, confirmPassword: string, name: string, role: Role) => {
     setIsLoading(true);
     try {
-      const response = await authApi.registerStudent({ email, password, name, role });
+      // Omit confirmPassword as it's for client-side validation only
+      const { confirmPassword: _, ...registerData } = { email, password, confirmPassword, name, role };
+      const response = await authApi.registerStudent(registerData);
       const { user: userData, tokens } = response.data;
       
       localStorage.setItem('accessToken', tokens.accessToken);

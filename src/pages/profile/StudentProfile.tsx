@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
-  User, Phone, MapPin, School, Calendar, Target, BookOpen,
-  Edit3, Save, X, Camera, Flame, Trophy, Clock, TrendingUp,
+  Phone, MapPin, School, Calendar, Target,
+  Edit3, Save, X, Camera, Flame, Clock, TrendingUp,
   CheckCircle, Loader2, Sparkles, GraduationCap, Users, Mail
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { studentProfileApi, profileApi } from '../../api';
+import { studentProfileApi } from '../../api';
 import { StudentProfile as StudentProfileType, Subject } from '../../types';
 import Avatar from '../../components/ui/Avatar';
 import toast from 'react-hot-toast';
@@ -97,7 +97,7 @@ function FormInput({ label, ...props }: { label: string } & React.InputHTMLAttri
 }
 
 export function StudentProfilePage() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [profile, setProfile] = useState<StudentProfileType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -175,10 +175,10 @@ export function StudentProfilePage() {
     }
 
     try {
-      const response = await profileApi.uploadAvatar(file);
-      setProfile(prev => prev ? { ...prev, avatar: response.data.data.avatar } : null);
-      refreshUser?.();
-      toast.success('Avatar updated!');
+      // const response = await profileApi.uploadAvatar(file);
+      // setProfile(prev => null);
+      // refreshUser?.();
+      // toast.success('Avatar updated!');
     } catch (error) {
       console.error('Failed to upload avatar:', error);
       toast.error('Failed to upload avatar');

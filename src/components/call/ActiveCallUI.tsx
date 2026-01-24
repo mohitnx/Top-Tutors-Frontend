@@ -60,7 +60,7 @@ export function ActiveCallUI({ conversationId, otherPartyName }: ActiveCallUIPro
   const {
     localStream,
     remoteStream,
-    isConnecting,
+    // isConnecting,
     isConnected,
     startCall,
     endCall: webrtcEndCall,

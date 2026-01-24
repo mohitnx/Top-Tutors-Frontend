@@ -1,5 +1,6 @@
 interface AvatarProps {
   name: string | null;
+  src?: string; // Optional image source
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -33,16 +34,28 @@ function getColorFromName(name: string | null): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-export function Avatar({ name, size = 'md', className = '' }: AvatarProps) {
+export function Avatar({ name, src, size = 'md', className = '' }: AvatarProps) {
   const sizeClasses = {
     sm: 'w-8 h-8 text-xs',
     md: 'w-10 h-10 text-sm',
     lg: 'w-12 h-12 text-base',
   };
 
+  const avatarClasses = `${sizeClasses[size]} rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 ${className}`;
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name || 'Avatar'}
+        className={`${avatarClasses} object-cover`}
+      />
+    );
+  }
+
   return (
     <div
-      className={`${sizeClasses[size]} ${getColorFromName(name)} rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 ${className}`}
+      className={`${avatarClasses} ${getColorFromName(name)}`}
       title={name || 'Unknown'}
     >
       {getInitials(name)}

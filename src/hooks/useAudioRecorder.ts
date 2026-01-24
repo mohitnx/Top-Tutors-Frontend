@@ -57,7 +57,7 @@ export function useAudioRecorder(maxDuration = 300): UseAudioRecorderReturn {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<number | null>(null);
   const mimeTypeRef = useRef<string>('');
 
   const clearTimer = useCallback(() => {

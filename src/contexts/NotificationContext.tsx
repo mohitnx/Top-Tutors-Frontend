@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useCallback, useRef, useState, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, X, Check, Clock, AlertTriangle, Bell } from 'lucide-react';
+import { Phone, X, Check, Bell } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { getSocket, onSocketConnect, respondAvailability } from '../services/socket';
+import { getSocket, onSocketConnect } from '../services/socket';
 import { 
   Role, 
   NewPendingConversationEvent, 

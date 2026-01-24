@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { Send, Paperclip, X, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
+import { Send, Paperclip, X, Loader2, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface AttachmentPreview {
@@ -32,7 +32,7 @@ export function MessageInput({
   const [isUploading, setIsUploading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
 
   // Auto-resize textarea
   useEffect(() => {

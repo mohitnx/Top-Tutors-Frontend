@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
-  User, Phone, MapPin, Calendar, Briefcase, BookOpen,
+  Briefcase,
   Edit3, Save, X, Camera, Star, Clock, Users, MessageSquare,
   Award, GraduationCap, Globe, Linkedin, Link as LinkIcon, Plus,
-  Trash2, CheckCircle, Shield, DollarSign, Loader2, Languages
+  Trash2, CheckCircle, Shield, Loader2
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { tutorProfileApi, profileApi } from '../../api';
+import { tutorProfileApi } from '../../api';
 import { 
   TutorProfile as TutorProfileType, 
   Subject, 
@@ -32,8 +32,8 @@ const SUBJECTS: { value: Subject; label: string; color: string }[] = [
 ];
 
 const TEACHING_STYLES: TeachingStyle[] = ['Interactive', 'Lecture-based', 'Project-based', 'Discussion-based', 'Hands-on', 'Mixed'];
-const TIMEZONES = ['Asia/Kathmandu', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney'];
-const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+// const TIMEZONES = ['Asia/Kathmandu', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney'];
+// const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 
 // Stats Card
 function StatCard({ icon: Icon, label, value, color }: {
@@ -147,7 +147,7 @@ function CertificateCard({ cert, onRemove, isEditing }: { cert: Certificate; onR
 }
 
 export function TutorProfilePage() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [profile, setProfile] = useState<TutorProfileType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -239,10 +239,10 @@ export function TutorProfilePage() {
       return;
     }
     try {
-      const response = await profileApi.uploadAvatar(file);
-      setProfile(prev => prev ? { ...prev, avatar: response.data.data.avatar } : null);
-      refreshUser?.();
-      toast.success('Avatar updated!');
+      // const response = await profileApi.uploadAvatar(file);
+      // setProfile(prev =>  null);
+      // refreshUser?.();
+      // toast.success('Avatar updated!');
     } catch (error) {
       console.error('Failed to upload avatar:', error);
       toast.error('Failed to upload avatar');

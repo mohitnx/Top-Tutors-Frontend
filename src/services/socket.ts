@@ -9,7 +9,6 @@ import {
   ProcessingStatusEvent,
   TutorAssignedEvent,
   AllTutorsBusyEvent,
-  CallType,
   CallInitiateEvent,
   IncomingCallEvent,
   CallAcceptedEvent,
@@ -66,7 +65,7 @@ export const connectSocket = (token: string): Socket => {
 
   socket.on('connect', () => {
     console.log('[Socket] ✅ Connected successfully, id:', socket?.id);
-    console.log('[Socket] Transport used:', socket.io.engine.transport.name);
+    if (socket) console.log('[Socket] Transport used:', socket.io.engine.transport.name);
     // Notify all connection listeners
     connectionListeners.forEach(listener => listener());
   });
@@ -77,7 +76,7 @@ export const connectSocket = (token: string): Socket => {
 
   // Debug transport upgrades/downgrades
   socket.io.engine.on('upgrade', () => {
-    console.log('[Socket] 🔄 Transport upgraded to:', socket.io.engine.transport.name);
+    if (socket) console.log('[Socket] 🔄 Transport upgraded to:', socket.io.engine.transport.name);
   });
 
   socket.io.engine.on('upgradeError', (error) => {
@@ -89,7 +88,7 @@ export const connectSocket = (token: string): Socket => {
     console.error('[Socket] Connection details:', {
       url: `${WS_URL}/messages`,
       token: token ? 'present' : 'missing',
-      transport: socket.io.engine.transport.name
+      transport: socket?.io.engine.transport.name // Add null check here
     });
   });
 

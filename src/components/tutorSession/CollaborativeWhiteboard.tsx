@@ -8,7 +8,7 @@ import {
   onTutorSessionSocketConnect,
   joinSession,
   sendWhiteboardUpdate,
-  sendWhiteboardCursor,
+  // sendWhiteboardCursor,
   getWhiteboardData,
   onWhiteboardUpdate,
   onWhiteboardData,

@@ -80,7 +80,6 @@ export function TutorActiveSession({
   // Panel visibility
   const [showWhiteboard, setShowWhiteboard] = useState(true);
   const [showAiChat, setShowAiChat] = useState(true);
-  const [showTutorChat, setShowTutorChat] = useState(true);
 
   // Fullscreen mode for tutor
   const [fullscreenMode, setFullscreenMode] = useState<'whiteboard' | 'ai-chat' | 'tutor-chat' | null>(null);

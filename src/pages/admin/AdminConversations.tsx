@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Filter, ExternalLink } from 'lucide-react';
+import { Filter, ExternalLink } from 'lucide-react';
 import { messagesApi } from '../../api';
 import { Conversation, ConversationStatus } from '../../types';
-import { Spinner, ConversationSkeleton } from '../../components/ui/Loading';
+import { ConversationSkeleton } from '../../components/ui/Loading';
 import { NoConversations } from '../../components/ui/EmptyState';
 import { SubjectBadge, StatusBadge, UrgencyBadge } from '../../components/ui/Badge';
 import Pagination from '../../components/ui/Pagination';

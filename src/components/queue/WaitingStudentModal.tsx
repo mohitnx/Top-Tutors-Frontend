@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, User, BookOpen, AlertCircle, X, CheckCircle } from 'lucide-react';
+import { Clock, BookOpen, AlertCircle, X, CheckCircle } from 'lucide-react';
 import { WaitingStudentNotification, AvailabilityResponseType, RespondAvailabilityResponse } from '../../types';
 import { respondAvailability } from '../../services/socket';
 import Button from '../ui/Button';

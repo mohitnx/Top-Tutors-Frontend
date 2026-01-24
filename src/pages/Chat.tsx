@@ -4,7 +4,7 @@ import { ArrowLeft, CheckCircle, X, Clock, Loader2, Settings, Share2, Copy, Chec
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi } from '../api';
 import { useConversationSocket } from '../hooks/useSocket';
-import { getSocket, onSocketConnect, closeConversation as socketCloseConversation } from '../services/socket';
+import { getSocket, onSocketConnect } from '../services/socket';
 import { Conversation, Message, MessageType, Role, ConversationStatus, CallStatus, StatusChangeEvent, SenderType, TutorAssignedEvent, ReactionType, ConversationClosedEvent } from '../types';
 import { MessageBubble, MessageInput, TypingIndicator } from '../components/chat/index';
 import { SubjectBadge, StatusBadge } from '../components/ui/Badge';

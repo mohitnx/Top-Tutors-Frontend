@@ -30,7 +30,7 @@ export function useConversationSocket({
   onMessage, 
   onTyping 
 }: UseConversationSocketOptions) {
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
   const onMessageRef = useRef(onMessage);
   const onTypingRef = useRef(onTyping);
   const messageHandlerRef = useRef<((message: Message) => void) | null>(null);

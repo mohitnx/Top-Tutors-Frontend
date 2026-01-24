@@ -17,11 +17,11 @@ export function AudioCall({
   roomUrl,
   token,
   userName,
-  sessionId,
+  // sessionId,
   onLeave,
-  onParticipantCountChange,
+  // onParticipantCountChange,
   className = '',
-  autoJoin = false
+  // autoJoin = false
 }: AudioCallProps) {
   const { user } = useAuth();
   const [isJoined, setIsJoined] = useState(false);
@@ -169,14 +169,16 @@ export function FloatingCallIndicator({
         });
 
         console.log('[FloatingCallIndicator] Meeting data saved successfully');
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('[FloatingCallIndicator] Failed to save meeting data:', error);
+        const apiError = error as { response?: { status?: number; data?: { message?: string | string[] } } };
 
         // Enhanced error handling with user feedback
-        if (error?.response?.status >= 500) {
+        const status = apiError?.response?.status;
+        if (status && status >= 500) {
           console.warn('[FloatingCallIndicator] Server error - meeting data will be retried later');
           // Could implement local storage fallback here for offline scenarios
-        } else if (error?.response?.status >= 400) {
+        } else if (status && status >= 400) {
           console.warn('[FloatingCallIndicator] Client error - check session validity');
         } else {
           console.warn('[FloatingCallIndicator] Network error - meeting data saved locally');

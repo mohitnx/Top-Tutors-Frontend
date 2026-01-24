@@ -73,9 +73,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const isHandlingIncomingRef = useRef(false);
   const handledCallIdsRef = useRef<Set<string>>(new Set());
   
-  const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const incomingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const callTimeoutRef = useRef<number | null>(null);
+  const incomingTimeoutRef = useRef<number | null>(null);
+  const durationIntervalRef = useRef<number | null>(null);
   const ringtoneRef = useRef<HTMLAudioElement | null>(null);
 
   // Keep refs in sync
@@ -382,7 +382,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       // Show toast with custom styling for messages
       if (isCustomMessage) {
-        toast((t) => (
+        toast((_t) => (
           <div className="flex flex-col">
             <span className="font-medium text-gray-900">Call declined</span>
             <span className="text-sm text-gray-600 mt-1">"{message}"</span>

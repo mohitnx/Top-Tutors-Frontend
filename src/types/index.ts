@@ -58,6 +58,7 @@ export interface User {
   email: string;
   name: string | null;
   role: Role;
+  avatar?: string; // Added optional avatar field
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -409,7 +410,7 @@ export interface LoginForm {
 export interface RegisterForm {
   email: string;
   password: string;
-  confirmPassword: string;
+  confirmPassword?: string; // Made optional
   name: string;
   role: Role;
 }
