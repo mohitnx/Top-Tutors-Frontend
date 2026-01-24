@@ -9,8 +9,8 @@ export const authApi = {
   },
 
   // Register student
-  registerStudent: async (data: Omit<RegisterForm, 'confirmPassword'>): Promise<ApiResponse<AuthResponse>> => {
-    const response = await api.post<ApiResponse<AuthResponse>>('/auth/register/student', data);
+  registerStudent: async (data: RegisterForm): Promise<ApiResponse<AuthResponse>> => {
+    const response = await api.post<ApiResponse<AuthResponse>>('/auth/register', data);
     return response.data;
   },
 
@@ -36,6 +36,7 @@ export const authApi = {
 };
 
 export default authApi;
+
 
 
 

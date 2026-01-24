@@ -10,7 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, role: Role) => Promise<void>;
   logout: () => Promise<void>;
   setAuthFromCallback: (accessToken: string, refreshToken: string) => Promise<void>;
   hasRole: (roles: Role | Role[]) => boolean;
@@ -84,10 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const register = useCallback(async (email: string, password: string, name: string) => {
+  const register = useCallback(async (email: string, password: string, name: string, role: Role) => {
     setIsLoading(true);
     try {
-      const response = await authApi.registerStudent({ email, password, name });
+      const response = await authApi.registerStudent({ email, password, name, role });
       const { user: userData, tokens } = response.data;
       
       localStorage.setItem('accessToken', tokens.accessToken);

@@ -18,6 +18,7 @@ export function Landing() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
+  const [role, setRole] = useState<'STUDENT' | 'TUTOR'>('STUDENT');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -53,7 +54,7 @@ export function Landing() {
       if (mode === 'login') {
         await login(email, password);
       } else {
-        await register(email, password, name);
+        await register(email, password, name, role);
       }
     } catch {
       // Error handled in auth context
@@ -134,6 +135,19 @@ export function Landing() {
                     className="w-full px-3.5 py-2.5 bg-[#1c1c1c] border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-all"
                     required
                   />
+                </div>
+              )}
+              {mode === 'register' && (
+                <div>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as 'STUDENT' | 'TUTOR')}
+                    className="w-full px-3.5 py-2.5 bg-[#1c1c1c] border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-all"
+                    required
+                  >
+                    <option value="STUDENT">Student</option>
+                    <option value="TUTOR">Tutor</option>
+                  </select>
                 </div>
               )}
               

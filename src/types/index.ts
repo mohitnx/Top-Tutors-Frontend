@@ -411,6 +411,7 @@ export interface RegisterForm {
   password: string;
   confirmPassword: string;
   name: string;
+  role: Role;
 }
 
 export interface SendMessageForm {
