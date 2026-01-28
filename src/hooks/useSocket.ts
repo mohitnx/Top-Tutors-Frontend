@@ -419,9 +419,7 @@ export function useStudentNotifications({
       unsubscribe();
     };
   }, []);
-}
-
-export default { 
+}export default { 
   useConversationSocket, 
   useTutorNotifications, 
   useConversationListUpdates,
