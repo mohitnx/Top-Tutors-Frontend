@@ -39,6 +39,9 @@ export default {
           economics: '#4b5563',
           accounting: '#6b7280',
           general: '#64748b',
+          social: '#374151',
+          humanities: '#6b7280',
+          arts: '#6b7280',
         }
       },
       fontFamily: {
