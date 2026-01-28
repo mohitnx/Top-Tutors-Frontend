@@ -406,7 +406,7 @@ export function TutorDashboard() {
             ? 'bg-amber-500/10 border-amber-500/30' 
             : 'bg-gray-800/30 border-gray-700/50'
         }`}>
-          <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
+          {/* <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
             <div className="flex items-center gap-1.5">
               <Bell className={`w-4 h-4 ${tutorStatus.canAcceptNew ? 'text-amber-400' : 'text-gray-500'}`} />
               <h2 className={`text-sm font-semibold ${tutorStatus.canAcceptNew ? 'text-amber-200' : 'text-gray-400'}`}>
@@ -420,9 +420,9 @@ export function TutorDashboard() {
             }`}>
               {pendingConversations.length} waiting
             </span>
-          </div>
+          </div> */}
 
-          <div className="divide-y divide-inherit">
+          {/* <div className="divide-y divide-inherit">
             {pendingConversations.map((conversation) => (
               <div key={conversation.id} className={`p-3 transition-colors ${
                 tutorStatus.canAcceptNew ? 'hover:bg-amber-500/10' : 'opacity-60'
@@ -486,7 +486,7 @@ export function TutorDashboard() {
                 </div>
               </div>
             ))}
-          </div>
+          </div> */}
         </div>
       )}
 
