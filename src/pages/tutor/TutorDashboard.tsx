@@ -1,18 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { 
-  MessageSquare, Clock, CheckCircle, Bell, AlertCircle, UserPlus, X, 
+  MessageSquare, Clock, CheckCircle, AlertCircle,  
   Lock, Unlock, ChevronRight, Sparkles, BookOpen
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesApi } from '../../api';
 import { Conversation, ConversationStatus, SessionTakenEvent, ConversationTakenEvent, AcceptSessionResponse } from '../../types';
 import { 
-  rejectConversation as socketRejectConversation,
   getSocket,
   onSocketConnect,
 } from '../../services/socket';
-import { SubjectBadge, UrgencyBadge, StatusBadge } from '../../components/ui/Badge';
+import { SubjectBadge, StatusBadge } from '../../components/ui/Badge';
 import Avatar from '../../components/ui/Avatar';
 import { PendingHelpRequests, TutorActiveSession } from '../../components/tutorSession';
 import toast from 'react-hot-toast';
@@ -56,7 +55,7 @@ function StatCard({ icon: Icon, label, value, color, highlight = false }: {
 
 export function TutorDashboard() {
   const { user } = useAuth();
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [pendingConversations, setPendingConversations] = useState<PendingConversation[]>([]);
   const [tutorStatus, setTutorStatus] = useState<TutorStatus>({
@@ -65,7 +64,6 @@ export function TutorDashboard() {
     canAcceptNew: true,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -128,40 +126,40 @@ export function TutorDashboard() {
   }, []);
 
   // Accept a pending conversation
-  const handleAcceptConversation = async (conversationId: string) => {
-    if (!tutorStatus.canAcceptNew) {
-      toast.error('Complete your current session first');
-      return;
-    }
+  // const handleAcceptConversation = async (conversationId: string) => {
+  //   if (!tutorStatus.canAcceptNew) {
+  //     toast.error('Complete your current session first');
+  //     return;
+  //   }
 
-    setAcceptingId(conversationId);
-    try {
-      await messagesApi.acceptConversation(conversationId);
-      toast.success('Conversation accepted!');
-      navigate(`/conversations/${conversationId}`);
-    } catch (error: any) {
-      const errorMessage = error?.response?.data?.message || 'Failed to accept conversation';
+  //   setAcceptingId(conversationId);
+  //   try {
+  //     await messagesApi.acceptConversation(conversationId);
+  //     toast.success('Conversation accepted!');
+  //     navigate(`/conversations/${conversationId}`);
+  //   } catch (error: any) {
+  //     const errorMessage = error?.response?.data?.message || 'Failed to accept conversation';
       
-      if (error?.response?.status === 409 || errorMessage.toLowerCase().includes('active')) {
-        toast.error('Complete your current session first');
-        fetchPendingForMe();
-      } else if (error?.response?.status === 404 || errorMessage.toLowerCase().includes('taken')) {
-        toast.error('This conversation has been taken by another tutor');
-        setPendingConversations(prev => prev.filter(c => c.id !== conversationId));
-      } else {
-        toast.error(errorMessage);
-      }
-    } finally {
-      setAcceptingId(null);
-    }
-  };
+  //     if (error?.response?.status === 409 || errorMessage.toLowerCase().includes('active')) {
+  //       toast.error('Complete your current session first');
+  //       fetchPendingForMe();
+  //     } else if (error?.response?.status === 404 || errorMessage.toLowerCase().includes('taken')) {
+  //       toast.error('This conversation has been taken by another tutor');
+  //       setPendingConversations(prev => prev.filter(c => c.id !== conversationId));
+  //     } else {
+  //       toast.error(errorMessage);
+  //     }
+  //   } finally {
+  //     setAcceptingId(null);
+  //   }
+  // };
 
   // Reject/dismiss a pending conversation
-  const handleRejectConversation = (conversationId: string) => {
-    socketRejectConversation(conversationId);
-    setPendingConversations(prev => prev.filter(c => c.id !== conversationId));
-    toast('Conversation dismissed');
-  };
+  // const handleRejectConversation = (conversationId: string) => {
+  //   socketRejectConversation(conversationId);
+  //   setPendingConversations(prev => prev.filter(c => c.id !== conversationId));
+  //   toast('Conversation dismissed');
+  // };
 
   // Initial fetch
   useEffect(() => {
