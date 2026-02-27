@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Loader2, ArrowRight, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -8,7 +8,6 @@ import { Role } from '../types';
 // Claude-inspired Landing Page
 export function Landing() {
   const { isAuthenticated, user, login, register, isLoading: authLoading } = useAuth();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
   // Get redirect URL from query params (for shared conversation flow)
@@ -28,8 +27,7 @@ export function Landing() {
     const defaultPath = user.role === 'TUTOR' ? '/dashboard/tutor' : 
                         user.role === 'ADMIN' ? '/admin' : '/dashboard/student';
     const targetPath = redirectUrl || defaultPath;
-    navigate(targetPath, { replace: true });
-    return null;
+    return <Navigate to={targetPath} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -50,12 +48,14 @@ export function Landing() {
       }
     }
 
+    const trimmedEmail = email.trim();
+
     setIsSubmitting(true);
     try {
       if (mode === 'login') {
-        await login(email, password);
+        await login(trimmedEmail, password);
       } else {
-        await register(email, password, confirmPassword, name, role);
+        await register(trimmedEmail, password, confirmPassword, name, role);
       }
     } catch {
       // Error handled in auth context

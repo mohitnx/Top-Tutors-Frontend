@@ -394,9 +394,7 @@ export function useStudentNotifications({
     };
 
     setupListeners();
-    const unsubscribe = onSocketConnect(setupListeners);
-
-    return () => {
+    const unsubscribe = onSocketConnect(setupListeners);    return () => {
       isSubscribed = false;
       const socket = getSocket();
       if (socket && handlersRef.current) {

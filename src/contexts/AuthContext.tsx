@@ -75,8 +75,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       connectGeminiSocket(tokens.accessToken);
       toast.success('Welcome back!');
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } };
-      const message = err.response?.data?.message || 'Invalid credentials';
+      const err = error as {
+        response?: { status?: number; data?: { message?: string | string[] } };
+        message?: string;
+      };
+
+      const status = err.response?.status;
+      const rawMessage = err.response?.data?.message;
+      const backendMessage = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
+
+      let message = backendMessage;
+
+      if (!message) {
+        if (status === 401) {
+          message = 'Invalid email or password';
+        } else if (!status) {
+          message = 'Unable to reach server. Please check your connection and try again.';
+        } else {
+          message = 'Something went wrong while logging in. Please try again.';
+        }
+      }
+
       toast.error(message);
       throw error;
     } finally {
