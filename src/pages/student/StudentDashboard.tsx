@@ -225,6 +225,7 @@ export function StudentDashboard() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastUserMessageRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const {
@@ -487,12 +488,6 @@ export function StudentDashboard() {
     };
   }, [activeTutorSession?.tutorSessionId]);
 
-  // Scroll to bottom only when the messages list changes (new/removed messages),
-  // not on every streaming content chunk, so long answers don't auto-scroll.
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   // 🚨 EMERGENCY TEST FUNCTIONS
   useEffect(() => {
     // Global test function
@@ -675,6 +670,17 @@ export function StudentDashboard() {
     };
     setMessages((prev) => [...prev, tempUserMessage]);
 
+    // After adding the user message, scroll so that it sits at the top
+    // of the scrollable area, and keep that position while the answer streams.
+    setTimeout(() => {
+      if (lastUserMessageRef.current) {
+        lastUserMessageRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }
+    }, 0);
+
     try {
       if (files.length > 0) {
         await sendMessageWithAttachments(files, messageContent, currentSessionId || undefined);
@@ -718,6 +724,16 @@ export function StudentDashboard() {
       createdAt: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUserMessage]);
+
+    // Align the latest audio question to the top as well
+    setTimeout(() => {
+      if (lastUserMessageRef.current) {
+        lastUserMessageRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }
+    }, 0);
 
     try {
       await sendAudioMessage(audioFile, currentSessionId || undefined);
@@ -912,14 +928,23 @@ export function StudentDashboard() {
         ) : (
           // Messages
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                onRetry={() => handleRetry(msg.id)}
-                onFeedback={(feedback) => handleFeedback(msg.id, feedback)}
-              />
-            ))}
+            {messages.map((msg, index) => {
+              const isLastUserMessage =
+                msg.role === 'USER' && index === messages.length - 1;
+
+              return (
+                <div
+                  key={msg.id}
+                  ref={isLastUserMessage ? lastUserMessageRef : undefined}
+                >
+                  <MessageBubble
+                    message={msg}
+                    onRetry={() => handleRetry(msg.id)}
+                    onFeedback={(feedback) => handleFeedback(msg.id, feedback)}
+                  />
+                </div>
+              );
+            })}
             
             {/* Streaming message */}
             {streamingMessage && !messages.some(m => m.id === streamingMessage.id) && (
