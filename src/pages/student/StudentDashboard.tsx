@@ -487,10 +487,11 @@ export function StudentDashboard() {
     };
   }, [activeTutorSession?.tutorSessionId]);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom only when the messages list changes (new/removed messages),
+  // not on every streaming content chunk, so long answers don't auto-scroll.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [messages]);
 
   // 🚨 EMERGENCY TEST FUNCTIONS
   useEffect(() => {
