@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import {
   connectGeminiSocket,
   onGeminiSocketConnect,
@@ -47,6 +47,10 @@ export function useGeminiChat({
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [streamStartedAtMs, setStreamStartedAtMs] = useState<number | null>(null);
+  const [lastStreamEventAtMs, setLastStreamEventAtMs] = useState<number | null>(null);
+  const [lastRealChunkAtMs, setLastRealChunkAtMs] = useState<number | null>(null);
+  const [uxNowTick, setUxNowTick] = useState(0);
 
   // Refs to hold latest callbacks
   const onStreamStartRef = useRef(onStreamStart);
@@ -57,6 +61,7 @@ export function useGeminiChat({
   const onTutorConnectedRef = useRef(onTutorConnectedCallback);
   const onTutorWaitUpdateRef = useRef(onTutorWaitUpdateCallback);
   const streamChunkHandlerRef = useRef<((chunk: StreamChunk) => void) | null>(null);
+  const preserveContentOnNextStartRef = useRef(false);
 
   // Update refs when callbacks change
   useEffect(() => {
@@ -76,6 +81,13 @@ export function useGeminiChat({
     onTutorConnectedCallback,
     onTutorWaitUpdateCallback,
   ]);
+
+  // Tick while streaming so UI status can update without events
+  useEffect(() => {
+    if (!isStreaming) return;
+    const id = window.setInterval(() => setUxNowTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [isStreaming]);
 
   // Initialize socket connection
   useEffect(() => {
@@ -106,17 +118,38 @@ export function useGeminiChat({
   useEffect(() => {
     const handleStreamChunk = (chunk: StreamChunk) => {
       console.log('[useGeminiChat] Stream chunk:', chunk.type);
+      const now = Date.now();
+      setLastStreamEventAtMs(now);
       
       switch (chunk.type) {
         case 'start':
           setIsStreaming(true);
-          setStreamingContent('');
+          setStreamStartedAtMs(now);
+          setLastRealChunkAtMs(null);
+          if (!preserveContentOnNextStartRef.current) {
+            setStreamingContent('');
+          }
+          preserveContentOnNextStartRef.current = false;
           setStreamingMessageId(chunk.messageId);
           onStreamStartRef.current?.(chunk.messageId, chunk.sessionId);
           break;
 
         case 'chunk':
-          setStreamingContent(chunk.fullContent || '');
+          setLastRealChunkAtMs(now);
+          setStreamingContent((prev) => {
+            if (typeof chunk.content === 'string' && chunk.content.length > 0) {
+              return prev + chunk.content;
+            }
+            if (typeof chunk.fullContent === 'string') {
+              return chunk.fullContent;
+            }
+            return prev;
+          });
+          onStreamChunkRef.current?.(chunk);
+          break;
+
+        case 'heartbeat':
+          // Keepalive only; do not append to content
           onStreamChunkRef.current?.(chunk);
           break;
 
@@ -124,12 +157,18 @@ export function useGeminiChat({
           setIsStreaming(false);
           setStreamingContent('');
           setStreamingMessageId(null);
+          setStreamStartedAtMs(null);
+          setLastStreamEventAtMs(null);
+          setLastRealChunkAtMs(null);
           onStreamEndRef.current?.(chunk);
           break;
 
         case 'error':
           setIsStreaming(false);
           setStreamingMessageId(null);
+          setStreamStartedAtMs(null);
+          setLastStreamEventAtMs(null);
+          setLastRealChunkAtMs(null);
           onStreamErrorRef.current?.(chunk);
           break;
       }
@@ -293,11 +332,53 @@ export function useGeminiChat({
     []
   );
 
+  const prepareForRetry = useCallback((preservedContent?: string) => {
+    preserveContentOnNextStartRef.current = true;
+    if (typeof preservedContent === 'string') {
+      setStreamingContent(preservedContent);
+    }
+  }, []);
+
+  const streamUx = useMemo(() => {
+    const now = Date.now();
+
+    const startedAt = streamStartedAtMs ?? now;
+    const lastEventAt = lastStreamEventAtMs ?? startedAt;
+    const lastChunkAt = lastRealChunkAtMs ?? startedAt;
+
+    const silenceMs = Math.max(0, now - lastEventAt);
+    const waitingForRealChunkMs = Math.max(0, now - lastChunkAt);
+
+    const showConnectionSlow = isStreaming && silenceMs >= 25000;
+    const showStillGenerating = isStreaming && waitingForRealChunkMs >= 12000;
+    const showTakingLongerThanUsual = isStreaming && waitingForRealChunkMs >= 30000;
+
+    let statusText: string | null = null;
+    if (isStreaming) {
+      if (showConnectionSlow) statusText = 'Connection is slow…';
+      else if (showTakingLongerThanUsual) statusText = 'This is taking longer than usual…';
+      else if (showStillGenerating) statusText = 'Still generating…';
+      else statusText = 'Generating…';
+    }
+
+    return {
+      statusText,
+      silenceMs,
+      waitingForRealChunkMs,
+      showConnectionSlow,
+      showStillGenerating,
+      showTakingLongerThanUsual,
+      shouldOfferRetry: showConnectionSlow,
+    };
+  }, [isStreaming, lastRealChunkAtMs, lastStreamEventAtMs, streamStartedAtMs, uxNowTick]);
+
   return {
     isConnected,
     isStreaming,
     streamingContent,
     streamingMessageId,
+    streamUx,
+    prepareForRetry,
     sendMessage,
     sendMessageWithAttachments,
     sendAudioMessage,

@@ -55,11 +55,21 @@ interface MessageBubbleProps {
   message: AIMessage;
   isStreaming?: boolean;
   streamingContent?: string;
+  streamStatusText?: string | null;
+  showRetryWhileStreaming?: boolean;
   onRetry?: () => void;
   onFeedback?: (feedback: 'GOOD' | 'BAD') => void;
 }
 
-function MessageBubble({ message, isStreaming, streamingContent, onRetry, onFeedback }: MessageBubbleProps) {
+function MessageBubble({
+  message,
+  isStreaming,
+  streamingContent,
+  streamStatusText,
+  showRetryWhileStreaming,
+  onRetry,
+  onFeedback,
+}: MessageBubbleProps) {
   const isUser = message.role === 'USER';
   const content = isStreaming ? streamingContent : message.content;
 
@@ -151,17 +161,43 @@ function MessageBubble({ message, isStreaming, streamingContent, onRetry, onFeed
           )}
         </div>
 
-        {/* Message actions for AI messages */}
-        {!isUser && !isStreaming && (
-          <div className="flex items-center gap-1 mt-1.5">
-            {message.hasError ? (
+        {/* Streaming status */}
+        {!isUser && isStreaming && (
+          <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+            <Loader2 className="w-3.5 h-3.5 text-violet-400 animate-spin" />
+            <span className="flex-1">
+              {streamStatusText || 'Generating…'}
+            </span>
+            {showRetryWhileStreaming && (
               <button
                 onClick={onRetry}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 rounded-lg transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
                 Retry
               </button>
+            )}
+          </div>
+        )}
+
+        {/* Message actions for AI messages */}
+        {!isUser && !isStreaming && (
+          <div className="flex items-center gap-1 mt-1.5">
+            {message.hasError ? (
+              <>
+                {message.errorMessage && (
+                  <div className="flex-1 text-xs text-red-400">
+                    {message.errorMessage}
+                  </div>
+                )}
+                <button
+                  onClick={onRetry}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Retry
+                </button>
+              </>
             ) : (
               <>
                 <button
@@ -251,6 +287,8 @@ export function StudentDashboard() {
   const {
     isStreaming,
     streamingContent,
+    streamUx,
+    prepareForRetry,
     sendMessage,
     sendMessageWithAttachments,
     sendAudioMessage,
@@ -265,38 +303,69 @@ export function StudentDashboard() {
         setCurrentSessionId(sessionId);
         setSearchParams({ session: sessionId });
       }
-      // Create placeholder streaming message
-      setStreamingMessage({
-        id: messageId,
-        sessionId,
-        role: 'ASSISTANT',
-        content: '',
-        attachments: null,
-        audioUrl: null,
-        transcription: null,
-        isStreaming: true,
-        isComplete: false,
-        hasError: false,
-        errorMessage: null,
-        feedback: null,
-        createdAt: new Date().toISOString(),
+      // Clear any previous error for this message id and create/update streaming placeholder
+      setMessages((prev) => {
+        const existing = prev.find((m) => m.id === messageId);
+        if (existing) {
+          setStreamingMessage({
+            ...existing,
+            hasError: false,
+            errorMessage: null,
+            isStreaming: true,
+            isComplete: false,
+          });
+        } else {
+          setStreamingMessage({
+            id: messageId,
+            sessionId,
+            role: 'ASSISTANT',
+            content: '',
+            attachments: null,
+            audioUrl: null,
+            transcription: null,
+            isStreaming: true,
+            isComplete: false,
+            hasError: false,
+            errorMessage: null,
+            feedback: null,
+            createdAt: new Date().toISOString(),
+          });
+        }
+
+        return prev.map((m) =>
+          m.id === messageId ? { ...m, hasError: false, errorMessage: null } : m
+        );
       });
     },
     onStreamEnd: (chunk) => {
       console.log('[StudentDashboard] Stream ended');
       // Add final message to messages (avoid duplicates)
       setMessages((prev) => {
-        // Check if message already exists
+        const finalContent = chunk.fullContent ?? streamingContent ?? '';
+
+        // If the message already exists (e.g. retry), update it
         if (prev.some((m) => m.id === chunk.messageId)) {
-          return prev;
+          return prev.map((m) =>
+            m.id === chunk.messageId
+              ? {
+                  ...m,
+                  content: finalContent,
+                  isStreaming: false,
+                  isComplete: true,
+                  hasError: false,
+                  errorMessage: null,
+                }
+              : m
+          );
         }
+
         return [
           ...prev,
           {
             id: chunk.messageId,
             sessionId: chunk.sessionId,
             role: 'ASSISTANT',
-            content: chunk.fullContent || '',
+            content: finalContent,
             attachments: null,
             audioUrl: null,
             transcription: null,
@@ -320,7 +389,14 @@ export function StudentDashboard() {
           // Update existing message with error
           return prev.map((m) =>
             m.id === chunk.messageId
-              ? { ...m, hasError: true, errorMessage: chunk.error || 'Unknown error' }
+              ? {
+                  ...m,
+                  content: chunk.fullContent ?? m.content,
+                  hasError: true,
+                  errorMessage: chunk.error || 'Unknown error',
+                  isStreaming: false,
+                  isComplete: false,
+                }
               : m
           );
         }
@@ -777,7 +853,21 @@ export function StudentDashboard() {
 
   // Handle retry
   const handleRetry = async (messageId: string) => {
+    const existing = messages.find((m) => m.id === messageId);
+    if (existing?.content) {
+      prepareForRetry(existing.content);
+    }
+    // Optimistically clear the error; the next stream 'start' will also clear it
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, hasError: false, errorMessage: null } : m))
+    );
     await retryMessage(messageId);
+  };
+
+  const handleRetryStreaming = async () => {
+    if (!streamingMessage) return;
+    prepareForRetry(streamingContent);
+    await retryMessage(streamingMessage.id);
   };
 
   // Handle feedback
@@ -953,6 +1043,9 @@ export function StudentDashboard() {
                 message={streamingMessage}
                 isStreaming={true}
                 streamingContent={streamingContent}
+                streamStatusText={streamUx.statusText}
+                showRetryWhileStreaming={streamUx.shouldOfferRetry}
+                onRetry={handleRetryStreaming}
               />
             )}
             

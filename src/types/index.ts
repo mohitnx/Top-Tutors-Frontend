@@ -770,7 +770,7 @@ export interface AIAttachment {
 }
 
 // Stream Chunk Types
-export type StreamChunkType = 'start' | 'chunk' | 'end' | 'error';
+export type StreamChunkType = 'start' | 'chunk' | 'heartbeat' | 'end' | 'error';
 
 export interface StreamChunk {
   type: StreamChunkType;
