@@ -14,7 +14,7 @@ export function Spinner({ size = 'md', className = '' }: SpinnerProps) {
 
   return (
     <Loader2 
-      className={`animate-spin text-primary-600 ${sizeClasses[size]} ${className}`} 
+      className={`animate-spin text-violet-400 ${sizeClasses[size]} ${className}`} 
     />
   );
 }
@@ -25,10 +25,13 @@ interface LoadingScreenProps {
 
 export function LoadingScreen({ message = 'Loading...' }: LoadingScreenProps) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-[#0f0f0f] px-6">
       <div className="text-center">
-        <Spinner size="lg" className="mx-auto mb-3" />
-        <p className="text-sm text-gray-500">{message}</p>
+        <div className="mx-auto mb-4 w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shadow-xl shadow-violet-500/20">
+          <Spinner size="md" className="text-white" />
+        </div>
+        <p className="text-sm text-gray-300">{message}</p>
+        <p className="text-xs text-gray-500 mt-1">This usually takes a moment after a refresh.</p>
       </div>
     </div>
   );
@@ -40,10 +43,10 @@ interface LoadingOverlayProps {
 
 export function LoadingOverlay({ message }: LoadingOverlayProps) {
   return (
-    <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10">
+    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-10">
       <div className="text-center">
         <Spinner size="md" className="mx-auto mb-2" />
-        {message && <p className="text-sm text-gray-500">{message}</p>}
+        {message && <p className="text-sm text-gray-200">{message}</p>}
       </div>
     </div>
   );

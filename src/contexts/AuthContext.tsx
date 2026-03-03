@@ -27,34 +27,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize auth state from localStorage
   useEffect(() => {
-    const initAuth = async () => {
-      const token = localStorage.getItem('accessToken');
-      const storedUser = localStorage.getItem('user');
+    let isMounted = true;
 
-      if (token && storedUser) {
-        try {
-          setUser(JSON.parse(storedUser));
-          // Verify token is still valid
-          const response = await authApi.getProfile();
-          setUser(response.data);
-          localStorage.setItem('user', JSON.stringify(response.data));
-          // Connect WebSockets
-          connectSocket(token);
-          connectGeminiSocket(token);
-        } catch {
-          // Token invalid, clear storage
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('user');
-          setUser(null);
-        }
-      }
-      setIsLoading(false);
+    const clearAuth = () => {
+      disconnectSocket();
+      disconnectGeminiSocket();
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      if (isMounted) setUser(null);
     };
 
-    initAuth();
+    const token = localStorage.getItem('accessToken');
+    const storedUser = localStorage.getItem('user');
+
+    // If we have cached auth, render immediately for a better refresh UX,
+    // then verify the token in the background.
+    if (token && storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser) as User;
+        if (isMounted) {
+          setUser(parsedUser);
+          setIsLoading(false);
+        }
+
+        connectSocket(token);
+        connectGeminiSocket(token);
+
+        authApi.getProfile()
+          .then((response) => {
+            if (!isMounted) return;
+            setUser(response.data);
+            localStorage.setItem('user', JSON.stringify(response.data));
+          })
+          .catch(() => {
+            if (!isMounted) return;
+            clearAuth();
+          });
+      } catch {
+        // Corrupt cached user; fall back to verifying token only.
+        localStorage.removeItem('user');
+      }
+    }
+
+    // If we only have a token (no cached user), we do need to block once to fetch the user.
+    if (token && !localStorage.getItem('user')) {
+      connectSocket(token);
+      connectGeminiSocket(token);
+
+      authApi.getProfile()
+        .then((response) => {
+          if (!isMounted) return;
+          setUser(response.data);
+          localStorage.setItem('user', JSON.stringify(response.data));
+        })
+        .catch(() => {
+          if (!isMounted) return;
+          clearAuth();
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    } else if (!token) {
+      if (isMounted) setIsLoading(false);
+    }
 
     return () => {
+      isMounted = false;
       disconnectSocket();
       disconnectGeminiSocket();
     };
