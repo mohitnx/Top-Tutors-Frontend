@@ -1,19 +1,26 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { Role } from '../../types';
 import ClaudeSidebar from './ClaudeSidebar';
 
 interface LayoutProps {
   showSidebar?: boolean;
 }
 
-// Claude-style Layout with dark sidebar
+// Layout with dark sidebar, role-aware content background
 export function Layout({ showSidebar = true }: LayoutProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const { user } = useAuth();
+
+  // Students get dark bg (Claude-style chat), everyone else gets modern dark bg
+  const isStudent = user?.role === Role.STUDENT;
+  const bgClass = isStudent ? 'bg-[#212121]' : 'bg-[#1a1b1e]';
 
   return (
-    <div className="min-h-screen bg-[#212121]">
+    <div className={`min-h-screen ${bgClass}`}>
       {showSidebar && (
-        <ClaudeSidebar 
+        <ClaudeSidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
@@ -21,9 +28,9 @@ export function Layout({ showSidebar = true }: LayoutProps) {
 
       <main
         className={`min-h-screen transition-all duration-300 ${
-          showSidebar 
-            ? isSidebarCollapsed 
-              ? 'lg:ml-14' 
+          showSidebar
+            ? isSidebarCollapsed
+              ? 'lg:ml-14'
               : 'lg:ml-56'
             : ''
         }`}

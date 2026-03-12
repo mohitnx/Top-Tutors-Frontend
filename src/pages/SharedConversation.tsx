@@ -52,8 +52,7 @@ export function SharedConversation() {
 
       setIsLoading(true);
       try {
-        const response = await messagesApi.getSharedConversation(shareToken);
-        const sharedConv = response.data;
+        const sharedConv = await messagesApi.getSharedConversation(shareToken);
         setConversation(sharedConv);
 
         // If user is authenticated and is a student or tutor, check if they're a participant

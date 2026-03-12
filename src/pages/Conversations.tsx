@@ -25,8 +25,8 @@ export function Conversations() {
         20, 
         statusFilter || undefined
       );
-      setConversations(response.data.data);
-      setTotalPages(response.data.meta.totalPages);
+      setConversations(response.data);
+      setTotalPages(response.meta.totalPages);
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
     } finally {

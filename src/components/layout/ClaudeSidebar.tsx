@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { 
+import {
   Plus,
   LayoutDashboard,
   Users,
@@ -16,7 +16,10 @@ import {
   Pin,
   Trash2,
   MoreHorizontal,
-  Search
+  Search,
+  GraduationCap,
+  Layers,
+  Package
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Role, AIChatSession } from '../../types';
@@ -54,7 +57,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
     try {
       setIsLoadingAiSessions(true);
       const response = await geminiChatApi.getSessions({ limit: 10 });
-      setAiSessions(response.data.sessions || []);
+      setAiSessions(response.sessions || []);
     } catch (error) {
       console.error('Failed to fetch AI sessions:', error);
     } finally {
@@ -70,7 +73,10 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
   const getDashboardPath = () => {
     if (!user) return '/';
     switch (user.role) {
-      case Role.ADMIN: return '/admin';
+      case Role.ADMIN:
+      case Role.ADMINISTRATOR:
+        return '/admin';
+      case Role.TEACHER: return '/dashboard/teacher';
       case Role.TUTOR: return '/dashboard/tutor';
       default: return '/dashboard/student';
     }
@@ -79,9 +85,23 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
   // Get role-specific nav items
   const getNavItems = () => {
     if (!user) return [];
-    
+
     const items = [];
-    
+
+    if (user.role === Role.STUDENT && (user.schoolId || user.students?.schoolId || user.studentProfile?.schoolId)) {
+      items.push(
+        { label: 'Packages', path: '/student/packages', icon: Package },
+      );
+    }
+
+    if (user.role === Role.TEACHER) {
+      items.push({
+        label: 'Dashboard',
+        path: '/dashboard/teacher',
+        icon: LayoutDashboard,
+      });
+    }
+
     if (user.role === Role.TUTOR) {
       items.push({
         label: 'Dashboard',
@@ -94,6 +114,14 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
       items.push(
         { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
         { label: 'Users', path: '/admin/users', icon: Users },
+        { label: 'Teachers', path: '/admin/teachers', icon: GraduationCap },
+      );
+    } else if (user.role === Role.ADMINISTRATOR) {
+      items.push(
+        { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
+        { label: 'Users', path: '/admin/users', icon: Users },
+        { label: 'Teachers', path: '/admin/teachers', icon: GraduationCap },
+        { label: 'Subjects', path: '/admin/sections', icon: Layers },
       );
     }
 
@@ -358,7 +386,8 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
                     {user?.name || 'User'}
                   </p>
                   <p className="text-xs text-gray-500 truncate">
-                    {user?.role === Role.STUDENT ? 'Student' : 
+                    {user?.role === Role.STUDENT ? 'Student' :
+                     user?.role === Role.TEACHER ? 'Teacher' :
                      user?.role === Role.TUTOR ? 'Tutor' : 'Admin'}
                   </p>
                 </div>

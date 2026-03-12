@@ -79,14 +79,14 @@ export function TutorDashboard() {
   const fetchConversations = useCallback(async () => {
     try {
       const response = await messagesApi.getConversations(1, 20);
-      const allConversations = response.data.data;
-      
+      const allConversations = response.data;
+
       const nonPending = allConversations.filter(c => c.status !== ConversationStatus.PENDING);
       setConversations(nonPending);
-      
+
       setStats(prev => ({
         ...prev,
-        total: response.data.meta.total,
+        total: response.meta.total,
         active: nonPending.filter(c => 
           c.status === ConversationStatus.ACTIVE || c.status === ConversationStatus.ASSIGNED
         ).length,
@@ -103,21 +103,21 @@ export function TutorDashboard() {
   const fetchPendingForMe = useCallback(async () => {
     try {
       const response = await messagesApi.getPendingForMe();
-      setPendingConversations(response.data.conversations || []);
-      setTutorStatus(response.data.tutorStatus || {
+      setPendingConversations(response.conversations || []);
+      setTutorStatus(response.tutorStatus || {
         isBusy: false,
         hasActiveSession: false,
         canAcceptNew: true,
       });
       setStats(prev => ({
         ...prev,
-        pending: response.data.conversations?.length || 0,
+        pending: response.conversations?.length || 0,
       }));
     } catch (error) {
       console.error('Failed to fetch pending conversations:', error);
       try {
         const fallback = await messagesApi.getConversations(1, 20, ConversationStatus.PENDING);
-        const pending = fallback.data.data.map(c => ({ ...c, canAccept: true }));
+        const pending = fallback.data.map(c => ({ ...c, canAccept: true }));
         setPendingConversations(pending);
       } catch {
         // Ignore

@@ -247,17 +247,17 @@ export function AskQuestion() {
         messageType: MessageType.TEXT,
       });
 
-      pendingConversationRef.current = response.data.conversation.id;
-      
+      pendingConversationRef.current = response.conversation.id;
+
       // Join conversation room to receive socket updates
-      joinConversation(response.data.conversation.id);
+      joinConversation(response.conversation.id);
 
       // If conversation already has a tutor, navigate immediately
-      if (response.data.conversation.tutor) {
-        const tutorName = response.data.conversation.tutor.user?.name || 'a tutor';
+      if (response.conversation.tutor) {
+        const tutorName = response.conversation.tutor.user?.name || 'a tutor';
         toast.success(`Your question has been sent to ${tutorName}!`);
         setShowProcessingModal(false);
-        navigate(`/conversations/${response.data.conversation.id}`);
+        navigate(`/conversations/${response.conversation.id}`);
       } else {
         // Wait for tutor assignment via WebSocket
         // Keep modal open - student can choose to cancel or wait
@@ -316,14 +316,14 @@ export function AskQuestion() {
         }
       );
 
-      pendingConversationRef.current = response.data.conversation.id;
-      
+      pendingConversationRef.current = response.conversation.id;
+
       // Join conversation room to receive socket updates
-      joinConversation(response.data.conversation.id);
+      joinConversation(response.conversation.id);
 
       // Show classification info
-      if (response.data.classification) {
-        const { subject, topic } = response.data.classification;
+      if (response.classification) {
+        const { subject, topic } = response.classification;
         setProcessingStatus({
           status: 'CLASSIFYING',
           message: `Detected: ${subject.replace('_', ' ')}${topic ? ` - ${topic}` : ''}`,
@@ -332,11 +332,11 @@ export function AskQuestion() {
       }
 
       // If conversation already has a tutor, navigate immediately
-      if (response.data.conversation.tutor) {
-        const tutorName = response.data.conversation.tutor.user?.name || 'a tutor';
+      if (response.conversation.tutor) {
+        const tutorName = response.conversation.tutor.user?.name || 'a tutor';
         toast.success(`Your question has been sent to ${tutorName}!`);
         setShowProcessingModal(false);
-        navigate(`/conversations/${response.data.conversation.id}`);
+        navigate(`/conversations/${response.conversation.id}`);
       } else {
         // Wait for tutor assignment via WebSocket
         // Keep modal open - student can choose to cancel or wait

@@ -1,6 +1,6 @@
 import api from './client';
+import { unwrapData } from './unwrap';
 import {
-  ApiResponse,
   PendingHelpRequest,
   AcceptSessionResponse,
   ChatHistoryResponse,
@@ -49,54 +49,49 @@ export const tutorSessionApi = {
   // Request tutor help (analyzes entire AI conversation)
   requestTutorHelp: async (
     data: RequestTutorHelpData
-  ): Promise<ApiResponse<RequestTutorHelpResponse>> => {
-    const response = await api.post<ApiResponse<RequestTutorHelpResponse>>(
-      '/tutor-session/request',
-      data
-    );
-    return response.data;
+  ): Promise<RequestTutorHelpResponse> => {
+    const response = await api.post('/tutor-session/request', data);
+    return unwrapData<RequestTutorHelpResponse>(response.data);
   },
 
   // Update live sharing consent
   updateConsent: async (
     sessionId: string,
     enabled: boolean
-  ): Promise<ApiResponse<UpdateConsentResponse>> => {
-    const response = await api.put<ApiResponse<UpdateConsentResponse>>(
+  ): Promise<UpdateConsentResponse> => {
+    const response = await api.put(
       `/tutor-session/consent/${sessionId}`,
       { enabled }
     );
-    return response.data;
+    return unwrapData<UpdateConsentResponse>(response.data);
   },
 
   // Get consent status
   getConsentStatus: async (
     sessionId: string
-  ): Promise<ApiResponse<ConsentStatusResponse>> => {
-    const response = await api.get<ApiResponse<ConsentStatusResponse>>(
-      `/tutor-session/consent/${sessionId}`
-    );
-    return response.data;
+  ): Promise<ConsentStatusResponse> => {
+    const response = await api.get(`/tutor-session/consent/${sessionId}`);
+    return unwrapData<ConsentStatusResponse>(response.data);
   },
 
   // Get student room token (for joining video call)
   getStudentRoomToken: async (
     tutorSessionId: string
-  ): Promise<ApiResponse<DailyRoom>> => {
-    const response = await api.get<ApiResponse<DailyRoom>>(
+  ): Promise<DailyRoom> => {
+    const response = await api.get(
       `/tutor-session/student-room-token/${tutorSessionId}`
     );
-    return response.data;
+    return unwrapData<DailyRoom>(response.data);
   },
 
   // Get tutor room token (for joining video call as host)
   getTutorRoomToken: async (
     tutorSessionId: string
-  ): Promise<ApiResponse<DailyRoom>> => {
-    const response = await api.get<ApiResponse<DailyRoom>>(
+  ): Promise<DailyRoom> => {
+    const response = await api.get(
       `/tutor-session/tutor-room-token/${tutorSessionId}`
     );
-    return response.data;
+    return unwrapData<DailyRoom>(response.data);
   },
 
   // =====================
@@ -104,51 +99,41 @@ export const tutorSessionApi = {
   // =====================
 
   // Get pending sessions
-  getPendingSessions: async (): Promise<ApiResponse<PendingHelpRequest[]>> => {
-    const response = await api.get<ApiResponse<PendingHelpRequest[]>>(
-      '/tutor-session/pending'
-    );
-    return response.data;
+  getPendingSessions: async (): Promise<PendingHelpRequest[]> => {
+    const response = await api.get('/tutor-session/pending');
+    return unwrapData<PendingHelpRequest[]>(response.data);
   },
 
   // Accept session
   acceptSession: async (
     sessionId: string
-  ): Promise<ApiResponse<AcceptSessionResponse>> => {
-    const response = await api.post<ApiResponse<AcceptSessionResponse>>(
-      `/tutor-session/${sessionId}/accept`
-    );
-    return response.data;
+  ): Promise<AcceptSessionResponse> => {
+    const response = await api.post(`/tutor-session/${sessionId}/accept`);
+    return unwrapData<AcceptSessionResponse>(response.data);
   },
 
   // Start session
   startSession: async (
     sessionId: string
-  ): Promise<ApiResponse<SessionActionResponse>> => {
-    const response = await api.post<ApiResponse<SessionActionResponse>>(
-      `/tutor-session/${sessionId}/start`
-    );
-    return response.data;
+  ): Promise<SessionActionResponse> => {
+    const response = await api.post(`/tutor-session/${sessionId}/start`);
+    return unwrapData<SessionActionResponse>(response.data);
   },
 
   // End session
   endSession: async (
     sessionId: string
-  ): Promise<ApiResponse<SessionActionResponse>> => {
-    const response = await api.post<ApiResponse<SessionActionResponse>>(
-      `/tutor-session/${sessionId}/end`
-    );
-    return response.data;
+  ): Promise<SessionActionResponse> => {
+    const response = await api.post(`/tutor-session/${sessionId}/end`);
+    return unwrapData<SessionActionResponse>(response.data);
   },
 
   // Get chat history
   getChatHistory: async (
     sessionId: string
-  ): Promise<ApiResponse<ChatHistoryResponse>> => {
-    const response = await api.get<ApiResponse<ChatHistoryResponse>>(
-      `/tutor-session/${sessionId}/chat-history`
-    );
-    return response.data;
+  ): Promise<ChatHistoryResponse> => {
+    const response = await api.get(`/tutor-session/${sessionId}/chat-history`);
+    return unwrapData<ChatHistoryResponse>(response.data);
   },
 
   // Download chat as markdown
@@ -161,12 +146,12 @@ export const tutorSessionApi = {
   saveWhiteboard: async (
     sessionId: string,
     whiteboardData: { elements: unknown[]; appState?: unknown }
-  ): Promise<ApiResponse<{ success: boolean }>> => {
-    const response = await api.put<ApiResponse<{ success: boolean }>>(
+  ): Promise<{ success: boolean }> => {
+    const response = await api.put(
       `/tutor-session/${sessionId}/whiteboard`,
       { whiteboardData }
     );
-    return response.data;
+    return unwrapData<{ success: boolean }>(response.data);
   },
 
   // Save Daily.co meeting data (chat, recordings, etc.)
@@ -179,18 +164,18 @@ export const tutorSessionApi = {
       duration?: number;
       participants?: any[];
     }
-  ): Promise<ApiResponse<{ success: boolean }>> => {
-    const response = await api.post<ApiResponse<{ success: boolean }>>(
+  ): Promise<{ success: boolean }> => {
+    const response = await api.post(
       `/tutor-session/${sessionId}/save-daily-data`,
       { meetingData }
     );
-    return response.data;
+    return unwrapData<{ success: boolean }>(response.data);
   },
 
   // Get Daily.co meeting data for a session
   getDailyMeetingData: async (
     sessionId: string
-  ): Promise<ApiResponse<{
+  ): Promise<{
     roomUrl?: string;
     chatMessages?: any[];
     recordingUrl?: string;
@@ -198,13 +183,20 @@ export const tutorSessionApi = {
     participants?: any[];
     createdAt?: string;
     updatedAt?: string;
-  }>> => {
-    const response = await api.get<ApiResponse<any>>(
+  }> => {
+    const response = await api.get(
       `/tutor-session/${sessionId}/daily-meeting-data`
     );
-    return response.data;
+    return unwrapData<{
+      roomUrl?: string;
+      chatMessages?: any[];
+      recordingUrl?: string;
+      duration?: number;
+      participants?: any[];
+      createdAt?: string;
+      updatedAt?: string;
+    }>(response.data);
   },
 };
 
 export default tutorSessionApi;
-

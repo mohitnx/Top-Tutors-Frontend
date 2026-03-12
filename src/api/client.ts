@@ -48,9 +48,9 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    // Skip 401 handling for auth endpoints (login, register, etc.)
-    const isAuthEndpoint = originalRequest.url?.includes('/auth/login') || 
-                           originalRequest.url?.includes('/auth/register') ||
+    // Skip 401 handling for auth endpoints (login, accept-invitation, etc.)
+    const isAuthEndpoint = originalRequest.url?.includes('/auth/login') ||
+                           originalRequest.url?.includes('/auth/accept-invitation') ||
                            originalRequest.url?.includes('/auth/refresh');
     
     // Handle 401 Unauthorized (but NOT for auth endpoints - let them handle their own errors)
@@ -78,8 +78,12 @@ api.interceptors.response.use(
             refreshToken,
           });
 
-          const { accessToken, refreshToken: newRefreshToken } = response.data.data.tokens;
-          
+          // Backend wraps in { success, data: { tokens: { accessToken, refreshToken } } }
+          const raw = response.data;
+          const payload = raw?.data || raw;
+          const tokens = payload?.tokens || payload;
+          const { accessToken, refreshToken: newRefreshToken } = tokens;
+
           localStorage.setItem('accessToken', accessToken);
           localStorage.setItem('refreshToken', newRefreshToken);
 

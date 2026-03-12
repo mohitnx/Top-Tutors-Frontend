@@ -9,10 +9,10 @@ function AdminProfile() {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-[#212121] text-white p-8">
+    <div className="p-8">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Admin Profile</h1>
-        <div className="bg-gray-800/30 rounded-2xl p-6 border border-gray-700/50">
+        <h1 className="text-3xl font-bold text-gray-100 mb-8">Profile</h1>
+        <div className="bg-[#25262b] rounded-lg p-6 border border-gray-700/50">
           <div className="space-y-4">
             <div>
               <label className="text-sm text-gray-500">Name</label>
@@ -24,7 +24,7 @@ function AdminProfile() {
             </div>
             <div>
               <label className="text-sm text-gray-500">Role</label>
-              <p className="text-lg text-white">Administrator</p>
+              <p className="text-lg text-white">{user?.role === Role.ADMIN ? 'Admin' : 'School Administrator'}</p>
             </div>
           </div>
         </div>
@@ -55,6 +55,7 @@ export function Profile() {
     case Role.TUTOR:
       return <TutorProfilePage />;
     case Role.ADMIN:
+    case Role.ADMINISTRATOR:
       return <AdminProfile />;
     default:
       return <StudentProfilePage />;

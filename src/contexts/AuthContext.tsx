@@ -10,9 +10,8 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, confirmPassword: string, name: string, role: Role) => Promise<void>;
+  acceptInvitation: (token: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  setAuthFromCallback: (accessToken: string, refreshToken: string) => Promise<void>;
   hasRole: (roles: Role | Role[]) => boolean;
   refreshUser: () => Promise<void>;
 }
@@ -24,6 +23,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const isAuthenticated = !!user;
+
+  const storeAuthAndConnect = (accessToken: string, refreshToken: string, userData: User) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('user', JSON.stringify(userData));
+    setUser(userData);
+    connectSocket(accessToken);
+    connectGeminiSocket(accessToken);
+  };
 
   // Initialize auth state from localStorage
   useEffect(() => {
@@ -55,10 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         connectGeminiSocket(token);
 
         authApi.getProfile()
-          .then((response) => {
+          .then((userData) => {
             if (!isMounted) return;
-            setUser(response.data);
-            localStorage.setItem('user', JSON.stringify(response.data));
+            setUser(userData);
+            localStorage.setItem('user', JSON.stringify(userData));
           })
           .catch(() => {
             if (!isMounted) return;
@@ -76,10 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       connectGeminiSocket(token);
 
       authApi.getProfile()
-        .then((response) => {
+        .then((userData) => {
           if (!isMounted) return;
-          setUser(response.data);
-          localStorage.setItem('user', JSON.stringify(response.data));
+          setUser(userData);
+          localStorage.setItem('user', JSON.stringify(userData));
         })
         .catch(() => {
           if (!isMounted) return;
@@ -102,16 +110,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const response = await authApi.login({ email, password });
-      const { user: userData, tokens } = response.data;
-      
-      localStorage.setItem('accessToken', tokens.accessToken);
-      localStorage.setItem('refreshToken', tokens.refreshToken);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      setUser(userData);
-      connectSocket(tokens.accessToken);
-      connectGeminiSocket(tokens.accessToken);
+      const { accessToken, refreshToken, user: userData } = await authApi.login({ email, password });
+      storeAuthAndConnect(accessToken, refreshToken, userData);
       toast.success('Welcome back!');
     } catch (error: unknown) {
       const err = error as {
@@ -128,6 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!message) {
         if (status === 401) {
           message = 'Invalid email or password';
+        } else if (status === 403) {
+          message = 'Account inactive. Please check your email for an invitation link.';
         } else if (!status) {
           message = 'Unable to reach server. Please check your connection and try again.';
         } else {
@@ -142,26 +144,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const register = useCallback(async (email: string, password: string, confirmPassword: string, name: string, role: Role) => {
+  const acceptInvitation = useCallback(async (token: string, password: string) => {
     setIsLoading(true);
     try {
-      // Omit confirmPassword as it's for client-side validation only
-      const { confirmPassword: _, ...registerData } = { email, password, confirmPassword, name, role };
-      const response = await authApi.registerStudent(registerData);
-      const { user: userData, tokens } = response.data;
-      
-      localStorage.setItem('accessToken', tokens.accessToken);
-      localStorage.setItem('refreshToken', tokens.refreshToken);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      setUser(userData);
-      connectSocket(tokens.accessToken);
-      connectGeminiSocket(tokens.accessToken);
-      toast.success('Account created successfully!');
+      const { accessToken, refreshToken, user: userData } = await authApi.acceptInvitation({ token, password });
+      storeAuthAndConnect(accessToken, refreshToken, userData);
+      toast.success('Account activated successfully!');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string | string[] } } };
       const message = err.response?.data?.message;
-      const errorMessage = Array.isArray(message) ? message[0] : message || 'Registration failed';
+      const errorMessage = Array.isArray(message) ? message[0] : message || 'Failed to accept invitation';
       toast.error(errorMessage);
       throw error;
     } finally {
@@ -175,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore logout errors
     }
-    
+
     disconnectSocket();
     disconnectGeminiSocket();
     localStorage.removeItem('accessToken');
@@ -183,28 +175,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('user');
     setUser(null);
     toast.success('Logged out successfully');
-  }, []);
-
-  const setAuthFromCallback = useCallback(async (accessToken: string, refreshToken: string) => {
-    setIsLoading(true);
-    try {
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
-      
-      const response = await authApi.getProfile();
-      localStorage.setItem('user', JSON.stringify(response.data));
-      setUser(response.data);
-      connectSocket(accessToken);
-      connectGeminiSocket(accessToken);
-      toast.success('Welcome!');
-    } catch (error) {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      toast.error('Authentication failed');
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
   }, []);
 
   const hasRole = useCallback((roles: Role | Role[]) => {
@@ -215,9 +185,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const response = await authApi.getProfile();
-      setUser(response.data);
-      localStorage.setItem('user', JSON.stringify(response.data));
+      const userData = await authApi.getProfile();
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
     } catch (error) {
       console.error('Failed to refresh user:', error);
     }
@@ -230,9 +200,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated,
         login,
-        register,
+        acceptInvitation,
         logout,
-        setAuthFromCallback,
         hasRole,
         refreshUser,
       }}
@@ -251,8 +220,3 @@ export function useAuth() {
 }
 
 export default AuthContext;
-
-
-
-
-

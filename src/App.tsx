@@ -12,12 +12,17 @@ import {
   Landing,
   Login,
   Register,
-  AuthCallback,
+  AcceptInvitation,
   StudentDashboard,
+  StudentPackages,
+  TeacherDashboard,
   TutorDashboard,
   AdminDashboard,
   AdminUsers,
+  AdminSchools,
   AdminConversations,
+  AdminTeachers,
+  AdminSections,
   Conversations,
   Chat,
   Profile,
@@ -69,13 +74,15 @@ function App() {
             <Route path="/" element={<Landing />} />
           </Route>
 
-          {/* Auth Routes - Redirect to Landing */}
+          {/* Auth Routes */}
           <Route element={<AuthLayout />}>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
           </Route>
+
+          {/* Accept Invitation - Public, standalone page */}
+          <Route path="/accept-invitation" element={<AcceptInvitation />} />
 
           {/* Student Routes */}
           <Route
@@ -86,8 +93,19 @@ function App() {
             }
           >
             <Route path="/dashboard/student" element={<StudentDashboard />} />
-            {/* /ask now redirects to dashboard since questions are asked from there */}
+            <Route path="/student/packages" element={<StudentPackages />} />
             <Route path="/ask" element={<Navigate to="/dashboard/student" replace />} />
+          </Route>
+
+          {/* Teacher Routes */}
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={[Role.TEACHER]}>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/dashboard/teacher" element={<TeacherDashboard />} />
           </Route>
 
           {/* Tutor Routes */}
@@ -101,7 +119,7 @@ function App() {
             <Route path="/dashboard/tutor" element={<TutorDashboard />} />
           </Route>
 
-          {/* Admin Routes */}
+          {/* Admin-only Routes (ADMIN only — Schools, Conversations) */}
           <Route
             element={
               <ProtectedRoute allowedRoles={[Role.ADMIN]}>
@@ -109,9 +127,32 @@ function App() {
               </ProtectedRoute>
             }
           >
+            <Route path="/admin/schools" element={<AdminSchools />} />
+            <Route path="/admin/conversations" element={<AdminConversations />} />
+          </Route>
+
+          {/* Administrator-only Routes (school subjects/sections) */}
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={[Role.ADMINISTRATOR]}>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/admin/sections" element={<AdminSections />} />
+          </Route>
+
+          {/* Admin + Administrator shared routes */}
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={[Role.ADMIN, Role.ADMINISTRATOR]}>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/users" element={<AdminUsers />} />
-            <Route path="/admin/conversations" element={<AdminConversations />} />
+            <Route path="/admin/teachers" element={<AdminTeachers />} />
           </Route>
 
           {/* Shared Protected Routes (Student & Tutor) */}
@@ -129,7 +170,7 @@ function App() {
           {/* Profile (All authenticated users) */}
           <Route
             element={
-              <ProtectedRoute allowedRoles={[Role.STUDENT, Role.TUTOR, Role.ADMIN]}>
+              <ProtectedRoute allowedRoles={[Role.STUDENT, Role.TEACHER, Role.TUTOR, Role.ADMIN, Role.ADMINISTRATOR]}>
                 <Layout />
               </ProtectedRoute>
             }
@@ -137,7 +178,7 @@ function App() {
             <Route path="/profile" element={<Profile />} />
           </Route>
 
-          {/* Shared Conversation - Public route (accessible to anyone) */}
+          {/* Shared Conversation - Public route */}
           <Route path="/shared/:shareToken" element={<SharedConversation />} />
 
           {/* Redirects */}

@@ -28,10 +28,10 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     
     const variantClasses = {
       primary: 'bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-700 shadow-sm hover:shadow-md',
-      secondary: 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400',
+      secondary: 'bg-[#2c2d32] text-gray-300 border border-gray-600 hover:bg-[#35363b] hover:border-gray-500',
       success: 'bg-emerald-500 text-white hover:bg-emerald-600',
       danger: 'bg-red-600 text-white hover:bg-red-700',
-      ghost: 'bg-transparent text-gray-600 hover:bg-gray-100',
+      ghost: 'bg-transparent text-gray-400 hover:bg-[#2c2d32]',
       link: 'bg-transparent text-primary-600 hover:text-primary-700 hover:underline p-0',
     };
 

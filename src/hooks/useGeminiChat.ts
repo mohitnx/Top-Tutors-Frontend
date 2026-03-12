@@ -12,13 +12,23 @@ import {
   offTutorConnected,
   onTutorWaitUpdate,
   offTutorWaitUpdate,
+  onCouncilStatus,
+  offCouncilStatus,
+  onCouncilMemberComplete,
+  offCouncilMemberComplete,
+  onCouncilSynthesisStart,
+  offCouncilSynthesisStart,
 } from '../services/geminiSocket';
 import {
   StreamChunk,
   TutorStatusUpdateEvent,
   TutorConnectedEvent,
   TutorWaitUpdateEvent,
+  CouncilStatusEvent,
+  CouncilMemberCompleteEvent,
+  CouncilSynthesisStartEvent,
   AIChatSession,
+  AIChatMode,
 } from '../types';
 import { geminiChatApi } from '../api';
 
@@ -31,6 +41,9 @@ interface UseGeminiChatOptions {
   onTutorStatusUpdate?: (data: TutorStatusUpdateEvent) => void;
   onTutorConnected?: (data: TutorConnectedEvent) => void;
   onTutorWaitUpdate?: (data: TutorWaitUpdateEvent) => void;
+  onCouncilStatus?: (data: CouncilStatusEvent) => void;
+  onCouncilMemberComplete?: (data: CouncilMemberCompleteEvent) => void;
+  onCouncilSynthesisStart?: (data: CouncilSynthesisStartEvent) => void;
 }
 
 export function useGeminiChat({
@@ -42,6 +55,9 @@ export function useGeminiChat({
   onTutorStatusUpdate: onTutorStatusUpdateCallback,
   onTutorConnected: onTutorConnectedCallback,
   onTutorWaitUpdate: onTutorWaitUpdateCallback,
+  onCouncilStatus: onCouncilStatusCallback,
+  onCouncilMemberComplete: onCouncilMemberCompleteCallback,
+  onCouncilSynthesisStart: onCouncilSynthesisStartCallback,
 }: UseGeminiChatOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -51,6 +67,11 @@ export function useGeminiChat({
   const [lastStreamEventAtMs, setLastStreamEventAtMs] = useState<number | null>(null);
   const [lastRealChunkAtMs, setLastRealChunkAtMs] = useState<number | null>(null);
   const [uxNowTick, setUxNowTick] = useState(0);
+  const [councilAnalyzing, setCouncilAnalyzing] = useState(false);
+  const [councilExperts, setCouncilExperts] = useState<CouncilStatusEvent['experts']>([]);
+  const [councilMembers, setCouncilMembers] = useState<CouncilMemberCompleteEvent[]>([]);
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [isWaitingForStream, setIsWaitingForStream] = useState(false);
 
   // Refs to hold latest callbacks
   const onStreamStartRef = useRef(onStreamStart);
@@ -60,6 +81,9 @@ export function useGeminiChat({
   const onTutorStatusUpdateRef = useRef(onTutorStatusUpdateCallback);
   const onTutorConnectedRef = useRef(onTutorConnectedCallback);
   const onTutorWaitUpdateRef = useRef(onTutorWaitUpdateCallback);
+  const onCouncilStatusRef = useRef(onCouncilStatusCallback);
+  const onCouncilMemberCompleteRef = useRef(onCouncilMemberCompleteCallback);
+  const onCouncilSynthesisStartRef = useRef(onCouncilSynthesisStartCallback);
   const streamChunkHandlerRef = useRef<((chunk: StreamChunk) => void) | null>(null);
   const preserveContentOnNextStartRef = useRef(false);
 
@@ -72,6 +96,9 @@ export function useGeminiChat({
     onTutorStatusUpdateRef.current = onTutorStatusUpdateCallback;
     onTutorConnectedRef.current = onTutorConnectedCallback;
     onTutorWaitUpdateRef.current = onTutorWaitUpdateCallback;
+    onCouncilStatusRef.current = onCouncilStatusCallback;
+    onCouncilMemberCompleteRef.current = onCouncilMemberCompleteCallback;
+    onCouncilSynthesisStartRef.current = onCouncilSynthesisStartCallback;
   }, [
     onStreamStart,
     onStreamChunkCallback,
@@ -80,14 +107,17 @@ export function useGeminiChat({
     onTutorStatusUpdateCallback,
     onTutorConnectedCallback,
     onTutorWaitUpdateCallback,
+    onCouncilStatusCallback,
+    onCouncilMemberCompleteCallback,
+    onCouncilSynthesisStartCallback,
   ]);
 
-  // Tick while streaming so UI status can update without events
+  // Tick while streaming/waiting so UI status can update without events
   useEffect(() => {
-    if (!isStreaming) return;
+    if (!isStreaming && !isWaitingForStream && !councilAnalyzing) return;
     const id = window.setInterval(() => setUxNowTick((t) => t + 1), 1000);
     return () => window.clearInterval(id);
-  }, [isStreaming]);
+  }, [isStreaming, isWaitingForStream, councilAnalyzing]);
 
   // Initialize socket connection
   useEffect(() => {
@@ -124,6 +154,10 @@ export function useGeminiChat({
       switch (chunk.type) {
         case 'start':
           setIsStreaming(true);
+          setIsWaitingForStream(false);
+          setIsSynthesizing(false);
+          setCouncilAnalyzing(false);
+          setCouncilExperts([]);
           setStreamStartedAtMs(now);
           setLastRealChunkAtMs(null);
           if (!preserveContentOnNextStartRef.current) {
@@ -136,15 +170,11 @@ export function useGeminiChat({
 
         case 'chunk':
           setLastRealChunkAtMs(now);
-          setStreamingContent((prev) => {
-            if (typeof chunk.content === 'string' && chunk.content.length > 0) {
-              return prev + chunk.content;
-            }
-            if (typeof chunk.fullContent === 'string') {
-              return chunk.fullContent;
-            }
-            return prev;
-          });
+          // Only append the delta (content). Never use fullContent here —
+          // it's the cumulative text and would cause the stream to "repeat".
+          if (typeof chunk.content === 'string' && chunk.content.length > 0) {
+            setStreamingContent((prev) => prev + chunk.content);
+          }
           onStreamChunkRef.current?.(chunk);
           break;
 
@@ -155,16 +185,22 @@ export function useGeminiChat({
 
         case 'end':
           setIsStreaming(false);
+          setIsWaitingForStream(false);
+          setIsSynthesizing(false);
+          setCouncilAnalyzing(false);
+          setCouncilExperts([]);
           setStreamingContent('');
           setStreamingMessageId(null);
           setStreamStartedAtMs(null);
           setLastStreamEventAtMs(null);
           setLastRealChunkAtMs(null);
+          setCouncilMembers([]);
           onStreamEndRef.current?.(chunk);
           break;
 
         case 'error':
           setIsStreaming(false);
+          setIsWaitingForStream(false);
           setStreamingMessageId(null);
           setStreamStartedAtMs(null);
           setLastStreamEventAtMs(null);
@@ -177,8 +213,10 @@ export function useGeminiChat({
     streamChunkHandlerRef.current = handleStreamChunk;
     onStreamChunk(handleStreamChunk);
 
+    // On reconnect, remove old listener first to avoid duplicate registrations
     const unsubscribe = onGeminiSocketConnect(() => {
       if (streamChunkHandlerRef.current) {
+        offStreamChunk(streamChunkHandlerRef.current);
         onStreamChunk(streamChunkHandlerRef.current);
       }
     });
@@ -216,6 +254,40 @@ export function useGeminiChat({
     };
   }, []);
 
+  // Handle council mode events
+  useEffect(() => {
+    const handleCouncilStatus = (data: CouncilStatusEvent) => {
+      setCouncilAnalyzing(true);
+      setCouncilExperts(data.experts);
+      onCouncilStatusRef.current?.(data);
+    };
+
+    const handleCouncilMemberComplete = (data: CouncilMemberCompleteEvent) => {
+      setCouncilMembers((prev) => [...prev, data]);
+      // Update expert status to done
+      setCouncilExperts((prev) =>
+        prev.map((e) => e.id === data.memberId ? { ...e, status: 'done' as const } : e)
+      );
+      onCouncilMemberCompleteRef.current?.(data);
+    };
+
+    const handleCouncilSynthesisStart = (data: CouncilSynthesisStartEvent) => {
+      setIsSynthesizing(true);
+      setCouncilAnalyzing(false);
+      onCouncilSynthesisStartRef.current?.(data);
+    };
+
+    onCouncilStatus(handleCouncilStatus);
+    onCouncilMemberComplete(handleCouncilMemberComplete);
+    onCouncilSynthesisStart(handleCouncilSynthesisStart);
+
+    return () => {
+      offCouncilStatus(handleCouncilStatus);
+      offCouncilMemberComplete(handleCouncilMemberComplete);
+      offCouncilSynthesisStart(handleCouncilSynthesisStart);
+    };
+  }, []);
+
   // Join/leave session
   useEffect(() => {
     if (!sessionId || !isConnected) return;
@@ -236,6 +308,7 @@ export function useGeminiChat({
       targetSessionId?: string
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
+        setIsWaitingForStream(true);
         const response = await geminiChatApi.sendMessage({
           content,
           sessionId: targetSessionId || sessionId,
@@ -243,8 +316,8 @@ export function useGeminiChat({
         });
 
         return {
-          messageId: response.data.messageId,
-          sessionId: response.data.sessionId,
+          messageId: response.messageId,
+          sessionId: response.sessionId,
         };
       } catch (error) {
         console.error('[useGeminiChat] Failed to send message:', error);
@@ -262,6 +335,7 @@ export function useGeminiChat({
       targetSessionId?: string
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
+        setIsWaitingForStream(true);
         const response = await geminiChatApi.sendMessageWithAttachments(
           files,
           content,
@@ -269,8 +343,8 @@ export function useGeminiChat({
         );
 
         return {
-          messageId: response.data.messageId,
-          sessionId: response.data.sessionId,
+          messageId: response.messageId,
+          sessionId: response.sessionId,
         };
       } catch (error) {
         console.error('[useGeminiChat] Failed to send attachments:', error);
@@ -287,14 +361,15 @@ export function useGeminiChat({
       targetSessionId?: string
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
+        setIsWaitingForStream(true);
         const response = await geminiChatApi.sendAudioMessage(
           audio,
           targetSessionId || sessionId
         );
 
         return {
-          messageId: response.data.messageId,
-          sessionId: response.data.sessionId,
+          messageId: response.messageId,
+          sessionId: response.sessionId,
         };
       } catch (error) {
         console.error('[useGeminiChat] Failed to send audio:', error);
@@ -307,10 +382,11 @@ export function useGeminiChat({
   // Retry failed message
   const retryMessage = useCallback(async (messageId: string) => {
     try {
+      setIsWaitingForStream(true);
       const response = await geminiChatApi.retryMessage(messageId);
       return {
-        messageId: response.data.messageId,
-        sessionId: response.data.sessionId,
+        messageId: response.messageId,
+        sessionId: response.sessionId,
       };
     } catch (error) {
       console.error('[useGeminiChat] Failed to retry message:', error);
@@ -353,12 +429,26 @@ export function useGeminiChat({
     const showStillGenerating = isStreaming && waitingForRealChunkMs >= 12000;
     const showTakingLongerThanUsual = isStreaming && waitingForRealChunkMs >= 30000;
 
+    const hasReceivedContent = lastRealChunkAtMs !== null;
+
     let statusText: string | null = null;
-    if (isStreaming) {
+    if (isWaitingForStream) {
+      // Between sending and first stream event — immediate feedback
+      if (isSynthesizing) statusText = 'Combining expert perspectives…';
+      else if (councilAnalyzing) statusText = 'Our experts are analyzing your question…';
+      else statusText = 'Processing your message…';
+    } else if (isStreaming) {
       if (showConnectionSlow) statusText = 'Connection is slow…';
       else if (showTakingLongerThanUsual) statusText = 'This is taking longer than usual…';
+      else if (isSynthesizing) statusText = 'Combining expert perspectives…';
+      else if (councilAnalyzing) statusText = 'Our experts are analyzing your question…';
       else if (showStillGenerating) statusText = 'Still generating…';
-      else statusText = 'Generating…';
+      else if (!hasReceivedContent) statusText = 'Thinking…';
+      else statusText = 'Writing…';
+    } else if (councilAnalyzing || isSynthesizing) {
+      // Council events can arrive before streaming starts
+      if (isSynthesizing) statusText = 'Combining expert perspectives…';
+      else statusText = 'Our experts are analyzing your question…';
     }
 
     return {
@@ -370,14 +460,19 @@ export function useGeminiChat({
       showTakingLongerThanUsual,
       shouldOfferRetry: showConnectionSlow,
     };
-  }, [isStreaming, lastRealChunkAtMs, lastStreamEventAtMs, streamStartedAtMs, uxNowTick]);
+  }, [isStreaming, isWaitingForStream, lastRealChunkAtMs, lastStreamEventAtMs, streamStartedAtMs, uxNowTick, councilAnalyzing, isSynthesizing]);
 
   return {
     isConnected,
     isStreaming,
+    isWaitingForStream,
     streamingContent,
     streamingMessageId,
     streamUx,
+    councilAnalyzing,
+    councilExperts,
+    councilMembers,
+    isSynthesizing,
     prepareForRetry,
     sendMessage,
     sendMessageWithAttachments,
@@ -401,7 +496,7 @@ export function useGeminiSessions() {
         limit: params?.limit || 20,
         search: params?.search,
       });
-      setSessions(response.data.sessions);
+      setSessions(response.sessions);
     } catch (err) {
       console.error('[useGeminiSessions] Failed to fetch sessions:', err);
       setError('Failed to load sessions');
@@ -413,9 +508,8 @@ export function useGeminiSessions() {
   const createSession = useCallback(async (title?: string) => {
     try {
       const response = await geminiChatApi.createSession({ title });
-      const newSession = response.data.session;
-      setSessions((prev) => [newSession, ...prev]);
-      return newSession;
+      setSessions((prev) => [response, ...prev]);
+      return response;
     } catch (err) {
       console.error('[useGeminiSessions] Failed to create session:', err);
       return null;
@@ -434,13 +528,13 @@ export function useGeminiSessions() {
   }, []);
 
   const updateSession = useCallback(
-    async (sessionId: string, data: { title?: string; isPinned?: boolean; isArchived?: boolean }) => {
+    async (sessionId: string, data: { title?: string; isPinned?: boolean; isArchived?: boolean; mode?: AIChatMode }) => {
       try {
         const response = await geminiChatApi.updateSession(sessionId, data);
         setSessions((prev) =>
-          prev.map((s) => (s.id === sessionId ? response.data.session : s))
+          prev.map((s) => (s.id === sessionId ? response : s))
         );
-        return response.data.session;
+        return response;
       } catch (err) {
         console.error('[useGeminiSessions] Failed to update session:', err);
         return null;

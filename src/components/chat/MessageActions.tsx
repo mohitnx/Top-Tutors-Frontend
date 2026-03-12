@@ -38,8 +38,7 @@ export function MessageActions({
     setIsLoading(true);
 
     try {
-      const response = await messagesApi.addReaction(messageId, type);
-      const data = response.data;
+      const data = await messagesApi.addReaction(messageId, type);
 
       let newLikeCount = localLikeCount;
       let newDislikeCount = localDislikeCount;

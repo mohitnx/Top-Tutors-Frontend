@@ -57,23 +57,23 @@ export function Modal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-fade-in"
       onClick={handleOverlayClick}
     >
-      <div 
-        className={`w-full ${sizeClasses[size]} bg-white rounded shadow-lg animate-slide-up`}
+      <div
+        className={`w-full ${sizeClasses[size]} bg-[#25262b] border border-gray-700/50 rounded shadow-lg animate-slide-up`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'modal-title' : undefined}
       >
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/50">
             {title && (
-              <h2 id="modal-title" className="text-lg font-bold text-gray-900">
+              <h2 id="modal-title" className="text-lg font-bold text-gray-100">
                 {title}
               </h2>
             )}
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
                 aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
@@ -113,7 +113,7 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
-      <p className="text-gray-600 mb-6">{message}</p>
+      <p className="text-gray-400 mb-6">{message}</p>
       <div className="flex gap-3 justify-end">
         <button
           onClick={onClose}

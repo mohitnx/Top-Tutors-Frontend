@@ -80,8 +80,8 @@ body {
   font-family: 'Lato', 'Source Sans 3', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--color-gray-50);
-  color: var(--color-gray-800);
+  background-color: #1a1b1e;
+  color: #e5e7eb;
   line-height: 1.5;
 }
 
@@ -90,7 +90,7 @@ h1, h2, h3, h4, h5, h6 {
   font-family: 'Lato', sans-serif;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--color-gray-900);
+  color: #f3f4f6;
 }
 
 /* Focus styles */
@@ -126,8 +126,8 @@ h1, h2, h3, h4, h5, h6 {
   }
   
   .btn-secondary {
-    @apply btn bg-white text-[var(--color-gray-700)] border border-[var(--color-gray-300)]
-           hover:bg-[var(--color-gray-100)] hover:border-[var(--color-gray-400)];
+    @apply btn bg-[#2c2d32] text-gray-300 border border-gray-600
+           hover:bg-[#35363b] hover:border-gray-500;
   }
   
   .btn-success {
@@ -144,8 +144,8 @@ h1, h2, h3, h4, h5, h6 {
   }
   
   .btn-ghost {
-    @apply btn bg-transparent text-[var(--color-gray-600)]
-           hover:bg-[var(--color-gray-100)];
+    @apply btn bg-transparent text-gray-400
+           hover:bg-[#2c2d32];
   }
   
   .btn-link {
@@ -167,29 +167,29 @@ h1, h2, h3, h4, h5, h6 {
 
   /* Form inputs */
   .input {
-    @apply w-full px-3 py-2 text-sm bg-white border border-[var(--color-gray-300)]
-           placeholder-[var(--color-gray-400)] transition-colors duration-150
-           disabled:bg-[var(--color-gray-100)] disabled:cursor-not-allowed;
+    @apply w-full px-3 py-2 text-sm bg-[#2c2d32] border border-gray-600
+           text-gray-200 placeholder-gray-500 transition-colors duration-150
+           disabled:bg-[#1a1b1e] disabled:cursor-not-allowed;
     border-radius: 4px;
   }
-  
+
   .input:focus {
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px var(--color-primary-50);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
     outline: none;
   }
-  
+
   .input-error {
     @apply border-red-500;
   }
-  
+
   .input-error:focus {
     border-color: #ef4444;
-    box-shadow: 0 0 0 3px #fef2f2;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
   }
-  
+
   .label {
-    @apply block text-sm font-semibold text-[var(--color-gray-700)] mb-1;
+    @apply block text-sm font-semibold text-gray-300 mb-1;
   }
   
   .helper-text {
@@ -202,7 +202,7 @@ h1, h2, h3, h4, h5, h6 {
 
   /* Cards */
   .card {
-    @apply bg-white border border-[var(--color-gray-200)] p-6;
+    @apply bg-[#25262b] border border-gray-700/50 p-6;
     border-radius: 4px;
   }
   
@@ -230,19 +230,19 @@ h1, h2, h3, h4, h5, h6 {
   }
   
   .badge-secondary {
-    @apply badge bg-[var(--color-gray-200)] text-[var(--color-gray-700)];
+    @apply badge bg-gray-700/50 text-gray-300;
   }
-  
+
   .badge-success {
-    @apply badge bg-emerald-100 text-emerald-800;
+    @apply badge bg-emerald-500/10 text-emerald-400;
   }
-  
+
   .badge-warning {
-    @apply badge bg-amber-100 text-amber-800;
+    @apply badge bg-amber-500/10 text-amber-400;
   }
-  
+
   .badge-danger {
-    @apply badge bg-red-100 text-red-800;
+    @apply badge bg-red-500/10 text-red-400;
   }
 
   /* Layout containers */
@@ -260,7 +260,7 @@ h1, h2, h3, h4, h5, h6 {
 
   /* Dividers */
   .divider {
-    @apply border-t border-[var(--color-gray-200)] my-4;
+    @apply border-t border-gray-700/50 my-4;
   }
 
   /* Links */
@@ -282,16 +282,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-gray-100);
+  background: #1a1b1e;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-gray-300);
+  background: #3a3b40;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-gray-400);
+  background: #4a4b50;
 }
 
 /* Animations */

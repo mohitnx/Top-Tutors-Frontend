@@ -1,63 +1,77 @@
 import api from './client';
-import { ApiResponse, User, PaginatedResponse } from '../types';
+import { unwrapData } from './unwrap';
+import { User } from '../types';
 
 export interface CreateUserData {
   email: string;
-  password: string;
   name: string;
-  role: string;
+  role: 'ADMINISTRATOR' | 'TEACHER' | 'TUTOR' | 'STUDENT';
+  schoolId?: string;
+}
+
+export interface BulkCreateUsersData {
+  users: CreateUserData[];
+}
+
+export interface BulkCreateUsersResponse {
+  created: User[];
+  failed: { email: string; reason: string }[];
 }
 
 export interface UpdateUserData {
   name?: string;
-  email?: string;
   isActive?: boolean;
 }
 
+export interface UsersListResponse {
+  data: User[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export const usersApi = {
-  // Get all users (paginated)
-  getUsers: async (page = 1, limit = 10): Promise<ApiResponse<PaginatedResponse<User>>> => {
-    const response = await api.get<ApiResponse<PaginatedResponse<User>>>('/users', {
+  // Get all users (paginated) - ADMIN only
+  getUsers: async (page = 1, limit = 20): Promise<UsersListResponse> => {
+    const response = await api.get('/admin/users', {
       params: { page, limit },
     });
-    return response.data;
+    return unwrapData<UsersListResponse>(response.data);
   },
 
-  // Get user by ID
-  getUserById: async (id: string): Promise<ApiResponse<User>> => {
-    const response = await api.get<ApiResponse<User>>(`/users/${id}`);
-    return response.data;
+  // Get user by ID - ADMIN only
+  getUserById: async (id: string): Promise<User> => {
+    const response = await api.get(`/admin/users/${id}`);
+    return unwrapData<User>(response.data);
   },
 
-  // Create user
-  createUser: async (data: CreateUserData): Promise<ApiResponse<User>> => {
-    const response = await api.post<ApiResponse<User>>('/users', data);
-    return response.data;
+  // Create user (sends invitation email) - ADMIN only
+  createUser: async (data: CreateUserData): Promise<User> => {
+    const response = await api.post('/admin/users', data);
+    return unwrapData<User>(response.data);
   },
 
-  // Update user
-  updateUser: async (id: string, data: UpdateUserData): Promise<ApiResponse<User>> => {
-    const response = await api.patch<ApiResponse<User>>(`/users/${id}`, data);
-    return response.data;
+  // Bulk create users - ADMIN only
+  bulkCreateUsers: async (data: BulkCreateUsersData): Promise<BulkCreateUsersResponse> => {
+    const response = await api.post('/admin/users/bulk', data);
+    return unwrapData<BulkCreateUsersResponse>(response.data);
   },
 
-  // Delete user
+  // Resend invitation email - ADMIN only
+  resendInvitation: async (id: string): Promise<void> => {
+    await api.post(`/admin/users/${id}/resend-invitation`);
+  },
+
+  // Update user - ADMIN only
+  updateUser: async (id: string, data: UpdateUserData): Promise<User> => {
+    const response = await api.patch(`/admin/users/${id}`, data);
+    return unwrapData<User>(response.data);
+  },
+
+  // Delete user - ADMIN only
   deleteUser: async (id: string): Promise<void> => {
-    await api.delete(`/users/${id}`);
+    await api.delete(`/admin/users/${id}`);
   },
 };
 
 export default usersApi;
-
-
-
-
-
-
-
-
-
-
-
-
-

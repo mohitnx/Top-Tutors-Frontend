@@ -91,8 +91,8 @@ export function TutorSessionPanel({
         try {
           console.log('[TutorSessionPanel] Getting room token for session:', activeTutorSession.tutorSessionId);
           const response = await tutorSessionApi.getStudentRoomToken(activeTutorSession.tutorSessionId);
-          console.log('[TutorSessionPanel] Room token received:', response.data);
-          setDailyRoom(response.data);
+          console.log('[TutorSessionPanel] Room token received:', response);
+          setDailyRoom(response);
           setShowFloatingSession(true);
           setSessionState('tutor_connected');
           toast.success('Connected to tutor session!');
@@ -129,9 +129,9 @@ export function TutorSessionPanel({
         urgency,
       });
 
-      setTutorSessionId(response.data.tutorSessionId);
-      setSummary(response.data.summary);
-      setTopic(response.data.topic);
+      setTutorSessionId(response.tutorSessionId);
+      setSummary(response.summary);
+      setTopic(response.topic);
       setSessionState('waiting');
       
       toast.success('Looking for available tutors...');

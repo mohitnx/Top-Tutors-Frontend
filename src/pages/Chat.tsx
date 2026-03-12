@@ -52,9 +52,9 @@ export function Chat() {
       
       setIsLoading(true);
       try {
-        const response = await messagesApi.getConversation(conversationId);
-        setConversation(response.data);
-        setMessages(response.data.messages || []);
+        const conv = await messagesApi.getConversation(conversationId);
+        setConversation(conv);
+        setMessages(conv.messages || []);
         
         // Mark as read
         await messagesApi.markAsRead(conversationId);
@@ -173,8 +173,8 @@ export function Chat() {
 
     const handleTutorAssigned = (data: TutorAssignedEvent) => {
       if (data.conversationId === conversationId) {
-        messagesApi.getConversation(conversationId).then(response => {
-          setConversation(response.data);
+        messagesApi.getConversation(conversationId).then(conv => {
+          setConversation(conv);
           toast.success(`${data.tutor.name} is now helping you!`);
         }).catch(console.error);
       }
@@ -214,10 +214,10 @@ export function Chat() {
         conversationId,
       });
 
-      setMessages(prev => [...prev, response.data.message]);
-      
-      if (conversation?.status !== response.data.conversation.status) {
-        setConversation(prev => prev ? { ...prev, status: response.data.conversation.status } : prev);
+      setMessages(prev => [...prev, response.message]);
+
+      if (conversation?.status !== response.conversation.status) {
+        setConversation(prev => prev ? { ...prev, status: response.conversation.status } : prev);
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -241,7 +241,7 @@ export function Chat() {
         }
       );
 
-      setMessages(prev => [...prev, response.data.message as Message]);
+      setMessages(prev => [...prev, response.message as Message]);
     } catch (error) {
       console.error('Failed to send attachments:', error);
       toast.error('Failed to send attachments');
@@ -256,7 +256,7 @@ export function Chat() {
     setIsClosing(true);
     try {
       const response = await messagesApi.closeConversation(conversationId, status);
-      setConversation(prev => prev ? { ...prev, status: response.data.status } : prev);
+      setConversation(prev => prev ? { ...prev, status: response.status } : prev);
       toast.success(`Conversation marked as ${status.toLowerCase()}`);
       setShowOptionsModal(false);
     } catch (error) {
@@ -274,8 +274,8 @@ export function Chat() {
       try {
         const response = await messagesApi.getShareStatus(conversationId);
         setShareStatus({
-          isShared: response.data.isShared,
-          shareUrl: response.data.shareUrl ? `${window.location.origin}${response.data.shareUrl}` : null,
+          isShared: response.isShared,
+          shareUrl: response.shareUrl ? `${window.location.origin}${response.shareUrl}` : null,
         });
       } catch (error) {
         // Ignore - share status not critical
@@ -290,7 +290,7 @@ export function Chat() {
     setIsSharing(true);
     try {
       const response = await messagesApi.shareConversation(conversationId);
-      const fullUrl = `${window.location.origin}${response.data.shareUrl}`;
+      const fullUrl = `${window.location.origin}${response.shareUrl}`;
       setShareStatus({ isShared: true, shareUrl: fullUrl });
       await navigator.clipboard.writeText(fullUrl);
       setShareCopied(true);

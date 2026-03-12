@@ -86,7 +86,7 @@ export function PendingHelpRequests({
   const fetchPendingRequests = useCallback(async () => {
     try {
       const response = await tutorSessionApi.getPendingSessions();
-      setRequests(response.data || []);
+      setRequests(response || []);
     } catch (error) {
       console.error('Failed to fetch pending requests:', error);
     } finally {
@@ -112,7 +112,7 @@ export function PendingHelpRequests({
       setRequests(prev => prev.filter(r => r.id !== requestId));
       
       // Notify parent
-      onAcceptSession(response.data);
+      onAcceptSession(response);
       
       toast.success('Session accepted!');
     } catch (error: any) {

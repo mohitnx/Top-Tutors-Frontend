@@ -4,8 +4,9 @@
 
 // Enums
 export enum Role {
-  USER = "USER",
   ADMIN = "ADMIN",
+  ADMINISTRATOR = "ADMINISTRATOR",
+  TEACHER = "TEACHER",
   TUTOR = "TUTOR",
   STUDENT = "STUDENT"
 }
@@ -16,14 +17,17 @@ export enum Subject {
   CHEMISTRY = "CHEMISTRY",
   BIOLOGY = "BIOLOGY",
   ENGLISH = "ENGLISH",
-  HISTORY = "HISTORY",
-  GEOGRAPHY = "GEOGRAPHY",
-  SOCIAL = "SOCIAL",
-  HUMANITIES = "HUMANITIES",
-  ARTS = "ARTS",
+  URDU = "URDU",
+  ISLAMIYAT = "ISLAMIYAT",
+  PAKISTAN_STUDIES = "PAKISTAN_STUDIES",
   COMPUTER_SCIENCE = "COMPUTER_SCIENCE",
-  ECONOMICS = "ECONOMICS",
+  GENERAL_KNOWLEDGE = "GENERAL_KNOWLEDGE",
   ACCOUNTING = "ACCOUNTING",
+  ECONOMICS = "ECONOMICS",
+  BUSINESS_STUDIES = "BUSINESS_STUDIES",
+  SOCIOLOGY = "SOCIOLOGY",
+  PSYCHOLOGY = "PSYCHOLOGY",
+  ENVIRONMENTAL_SCIENCE = "ENVIRONMENTAL_SCIENCE",
   GENERAL = "GENERAL"
 }
 
@@ -61,20 +65,55 @@ export interface User {
   email: string;
   name: string | null;
   role: Role;
-  avatar?: string; // Added optional avatar field
+  schoolId?: string | null;
+  avatar?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface Tokens {
-  accessToken: string;
-  refreshToken: string;
+  // Student-specific (from profile)
+  students?: { id: string; schoolId: string | null } | null;
+  studentProfile?: {
+    id: string;
+    grade?: string | null;
+    phoneNumber?: string | null;
+    dateOfBirth?: string | null;
+    schoolId: string | null;
+    school?: { id: string; name: string } | null;
+  } | null;
+  // Tutor-specific (from profile)
+  tutors?: { id: string } | null;
+  tutorProfile?: {
+    id: string;
+    bio?: string | null;
+    qualification?: string | null;
+    experience?: string | null;
+    hourlyRate?: number | null;
+    isVerified?: boolean;
+    isAvailable?: boolean;
+    rating?: number | null;
+    subjects?: string[];
+  } | null;
+  // Administrator-specific (from profile)
+  administeredSchool?: {
+    id: string;
+    name: string;
+    code?: string;
+  } | null;
 }
 
 export interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
   user: User;
-  tokens: Tokens;
+}
+
+// Raw backend response wraps data in ApiResponse
+export interface RawAuthResponse {
+  user: User;
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+  };
 }
 
 // Legacy profile types for conversations
@@ -410,12 +449,16 @@ export interface LoginForm {
   password: string;
 }
 
-export interface RegisterForm {
-  email: string;
+export interface AcceptInvitationForm {
+  token: string;
   password: string;
-  confirmPassword?: string; // Made optional
+}
+
+export interface InvitationInfo {
+  valid: boolean;
+  email: string;
   name: string;
-  role: Role;
+  role: string;
 }
 
 export interface SendMessageForm {
@@ -714,19 +757,23 @@ export interface ConversationClosedEvent {
 // AI Chat (Gemini) Types
 // ============================================
 
+// AI Chat Mode
+export type AIChatMode = 'SINGLE' | 'COUNCIL';
+
 // AI Chat Session
 export interface AIChatSession {
   id: string;
   title: string | null;
   summary: string | null;
   subject: Subject | null;
+  mode: AIChatMode;
   isPinned: boolean;
   isArchived: boolean;
   lastMessageAt: string;
   createdAt: string;
   tutorRequestStatus: TutorRequestStatus | null;
   linkedConversationId: string | null;
-  messageCount: number;
+  messageCount?: number;
   lastMessage?: {
     content: string;
     role: 'USER' | 'ASSISTANT';
@@ -735,20 +782,27 @@ export interface AIChatSession {
 }
 
 // Tutor Request Status
-export type TutorRequestStatus = 
+export type TutorRequestStatus =
   | 'NONE'
   | 'REQUESTED'
-  | 'TUTOR_NOTIFIED'
-  | 'TUTOR_COMING'
+  | 'MATCHED'
   | 'TUTOR_CONNECTED'
   | 'CANCELLED';
+
+// Council Member Response
+export interface CouncilMemberResponse {
+  memberId: 'conceptual' | 'practical' | 'clarity';
+  memberName: string;
+  memberLabel: string;
+  content: string;
+}
 
 // AI Message
 export interface AIMessage {
   id: string;
   sessionId: string;
   role: 'USER' | 'ASSISTANT';
-  content: string;
+  content: string | null;
   attachments: AIAttachment[] | null;
   audioUrl: string | null;
   transcription: string | null;
@@ -757,16 +811,17 @@ export interface AIMessage {
   hasError: boolean;
   errorMessage: string | null;
   feedback: 'GOOD' | 'BAD' | null;
+  councilResponses: CouncilMemberResponse[] | null;
   createdAt: string;
 }
 
 // AI Attachment
 export interface AIAttachment {
-  id: string;
   url: string;
   name: string;
-  type: string;
+  type: 'image' | 'document' | string;
   size: number;
+  mimeType?: string;
 }
 
 // Stream Chunk Types
@@ -778,11 +833,40 @@ export interface StreamChunk {
   sessionId: string;
   content?: string;
   fullContent?: string;
+  message?: string;
+  waitingMs?: number;
   error?: string;
   usage?: {
     promptTokens: number;
     completionTokens: number;
   };
+}
+
+// Council Mode Events
+export interface CouncilStatusEvent {
+  type: 'councilAnalysisStart';
+  sessionId: string;
+  messageId: string;
+  experts: Array<{
+    id: 'conceptual' | 'practical' | 'clarity';
+    name: string;
+    label: string;
+    status: 'analyzing' | 'done';
+  }>;
+}
+
+export interface CouncilMemberCompleteEvent {
+  memberId: 'conceptual' | 'practical' | 'clarity';
+  memberName: string;
+  memberLabel: string;
+  content: string;
+  index: number;
+  total: number;
+}
+
+export interface CouncilSynthesisStartEvent {
+  sessionId: string;
+  messageId: string;
 }
 
 // Tutor Request
@@ -1045,5 +1129,158 @@ export interface NewHelpRequestEvent {
   studentName: string;
   messageCount: number;
   urgency: AIUrgency;
+}
+
+// ============================================
+// Daily Learning Package Types
+// ============================================
+
+// Teacher Profile
+export interface Teacher {
+  id: string;
+  userId: string;
+  schoolId: string;
+  users: {
+    id: string;
+    name: string | null;
+    email: string;
+    isActive: boolean;
+  };
+  school?: {
+    id: string;
+    name: string;
+  };
+  teacher_sections?: TeacherSection[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// Teacher-Section assignment (many-to-many with subject)
+export interface TeacherSection {
+  teacherId: string;
+  sectionId: string;
+  subject: string;
+  teachers?: Teacher;
+  class_sections?: ClassSection;
+}
+
+// Student-Section assignment
+export interface StudentSection {
+  studentId: string;
+  sectionId: string;
+  students: {
+    id: string;
+    userId: string;
+    schoolId: string;
+    users: { name: string | null; email: string };
+  };
+}
+
+// Class Section
+export interface ClassSection {
+  id: string;
+  name: string;
+  schoolId: string;
+  grade: string | null;
+  school?: { id: string; name: string };
+  teacher_sections?: TeacherSection[];
+  student_sections?: StudentSection[];
+  _count?: { student_sections: number; teacher_sections: number };
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Create Section
+export interface CreateSectionData {
+  name: string;
+  grade?: string;
+  schoolId?: string; // Required for ADMIN, auto-filled for ADMINISTRATOR
+}
+
+export interface UpdateSectionData {
+  name?: string;
+  grade?: string;
+}
+
+// Daily Package Upload (teacher view)
+export interface DailyPackageUpload {
+  id: string;
+  sectionId: string;
+  teacherId: string;
+  subject: string;
+  status: DailyPackageStatus;
+  errorMsg: string | null;
+  class_sections?: { id: string; name: string; grade: string | null };
+  daily_packages?: DailyPackageItem[];
+  _count?: { upload_images: number; extracted_questions: number };
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Individual daily_package record within an upload
+export interface DailyPackageItem {
+  id: string;
+  packageDate: string;
+  pdfUrl: string | null;
+  audioUrl: string | null;
+  summaryText: string | null;
+  quizJson: QuizQuestion[] | null;
+  status: DailyPackageStatus;
+}
+
+export type DailyPackageStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+// Upload detail (includes extracted questions and images)
+export interface DailyPackageUploadDetail extends DailyPackageUpload {
+  upload_images: UploadImage[];
+  extracted_questions: ExtractedQuestion[];
+}
+
+export interface UploadImage {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+}
+
+export interface ExtractedQuestion {
+  id: string;
+  questionText: string;
+  frequency: number;
+  rankType: 'MOST_ASKED' | 'BEST_ASKED' | null;
+  rankPosition: number | null;
+  shortAnswer: string | null;
+}
+
+// Quiz Question
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation?: string;
+}
+
+// Student Package (daily)
+export interface StudentDailyPackage {
+  id: string;
+  sectionId: string;
+  subject: string;
+  packageDate: string;
+  status: DailyPackageStatus;
+  pdfUrl: string | null;
+  audioUrl: string | null;
+  summaryText: string | null;
+  quizJson: QuizQuestion[] | null;
+  class_sections: { id: string; name: string; grade: string | null };
+  teachers: {
+    users: { name: string | null };
+  };
+}
+
+// Student Package (weekly) - flat array
+export interface StudentWeeklyPackage {
+  weekStart: string;
+  weekEnd: string;
+  packages: StudentDailyPackage[];
 }
 

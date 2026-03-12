@@ -1,9 +1,9 @@
 import api from './client';
-import { 
-  ApiResponse, 
-  Conversation, 
-  Message, 
-  PaginatedResponse, 
+import { unwrapData } from './unwrap';
+import {
+  Conversation,
+  Message,
+  PaginatedResponse,
   MessageType,
   ConversationStatus,
   CallLog,
@@ -41,27 +41,90 @@ export interface SendAudioMessageResponse {
   conversation: Conversation;
 }
 
+export interface ReactionResponse {
+  added?: boolean;
+  updated?: boolean;
+  removed?: boolean;
+  type: 'LIKE' | 'DISLIKE';
+  reaction?: {
+    id: string;
+    messageId: string;
+    userId: string;
+    type: 'LIKE' | 'DISLIKE';
+    createdAt: string;
+  };
+}
+
+export interface ShareResponse {
+  conversationId: string;
+  isShared: boolean;
+  shareToken: string;
+  shareUrl: string;
+  sharedAt: string;
+}
+
+export interface ShareStatus {
+  conversationId: string;
+  isShared: boolean;
+  shareToken: string | null;
+  shareUrl: string | null;
+  sharedAt: string | null;
+}
+
+export interface SharedConversationData {
+  id: string;
+  subject: string;
+  topic?: string;
+  studentName: string;
+  tutorName?: string;
+  status: string;
+  createdAt: string;
+  messages: Array<{
+    id: string;
+    senderType: 'STUDENT' | 'TUTOR' | 'SYSTEM';
+    content?: string;
+    messageType: string;
+    likeCount: number;
+    dislikeCount: number;
+    createdAt: string;
+  }>;
+}
+
+export interface PendingForMeResponse {
+  conversations: Array<Conversation & { canAccept: boolean }>;
+  tutorStatus: {
+    isBusy: boolean;
+    hasActiveSession: boolean;
+    canAcceptNew: boolean;
+  };
+}
+
+export interface CallHistoryResponse {
+  calls: CallLog[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}
+
 export const messagesApi = {
   // Send a text message (creates conversation if no conversationId)
-  sendMessage: async (data: SendMessageData): Promise<ApiResponse<SendMessageResponse>> => {
-    const response = await api.post<ApiResponse<SendMessageResponse>>('/messages/send', data);
-    return response.data;
+  sendMessage: async (data: SendMessageData): Promise<SendMessageResponse> => {
+    const response = await api.post('/messages/send', data);
+    return unwrapData<SendMessageResponse>(response.data);
   },
 
   // Send an audio message
   sendAudioMessage: async (
-    audioFile: File, 
+    audioFile: File,
     conversationId?: string,
     onUploadProgress?: (progress: number) => void
-  ): Promise<ApiResponse<SendAudioMessageResponse>> => {
+  ): Promise<SendAudioMessageResponse> => {
     const formData = new FormData();
     formData.append('audio', audioFile);
-    
+
     if (conversationId) {
       formData.append('conversationId', conversationId);
     }
 
-    const response = await api.post<ApiResponse<SendAudioMessageResponse>>(
+    const response = await api.post(
       '/messages/send/audio',
       formData,
       {
@@ -76,102 +139,85 @@ export const messagesApi = {
         },
       }
     );
-    return response.data;
+    return unwrapData<SendAudioMessageResponse>(response.data);
   },
 
   // Get my conversations
   getConversations: async (
-    page = 1, 
-    limit = 10, 
+    page = 1,
+    limit = 10,
     status?: ConversationStatus
-  ): Promise<ApiResponse<PaginatedResponse<Conversation>>> => {
+  ): Promise<PaginatedResponse<Conversation>> => {
     const params: Record<string, unknown> = { page, limit };
     if (status) params.status = status;
-    
-    const response = await api.get<ApiResponse<PaginatedResponse<Conversation>>>(
+
+    const response = await api.get(
       '/messages/conversations',
       { params }
     );
-    return response.data;
+    return unwrapData<PaginatedResponse<Conversation>>(response.data);
   },
 
   // Get pending conversations (admin)
   getPendingConversations: async (
-    page = 1, 
+    page = 1,
     limit = 10
-  ): Promise<ApiResponse<PaginatedResponse<Conversation>>> => {
-    const response = await api.get<ApiResponse<PaginatedResponse<Conversation>>>(
+  ): Promise<PaginatedResponse<Conversation>> => {
+    const response = await api.get(
       '/messages/conversations/pending',
       { params: { page, limit } }
     );
-    return response.data;
+    return unwrapData<PaginatedResponse<Conversation>>(response.data);
   },
 
   // Get pending conversations for tutor's dashboard (matching their topics)
-  getPendingForMe: async (): Promise<ApiResponse<{
-    conversations: Array<Conversation & { canAccept: boolean }>;
-    tutorStatus: {
-      isBusy: boolean;
-      hasActiveSession: boolean;
-      canAcceptNew: boolean;
-    };
-  }>> => {
-    const response = await api.get<ApiResponse<{
-      conversations: Array<Conversation & { canAccept: boolean }>;
-      tutorStatus: {
-        isBusy: boolean;
-        hasActiveSession: boolean;
-        canAcceptNew: boolean;
-      };
-    }>>('/messages/conversations/pending/for-me');
-    return response.data;
+  getPendingForMe: async (): Promise<PendingForMeResponse> => {
+    const response = await api.get('/messages/conversations/pending/for-me');
+    return unwrapData<PendingForMeResponse>(response.data);
   },
 
   // Check if tutor can accept a specific conversation
-  canAcceptConversation: async (conversationId: string): Promise<ApiResponse<{
+  canAcceptConversation: async (conversationId: string): Promise<{
     canAccept: boolean;
     reason?: string;
-  }>> => {
-    const response = await api.get<ApiResponse<{
-      canAccept: boolean;
-      reason?: string;
-    }>>(`/messages/conversations/${conversationId}/can-accept`);
-    return response.data;
+  }> => {
+    const response = await api.get(`/messages/conversations/${conversationId}/can-accept`);
+    return unwrapData<{ canAccept: boolean; reason?: string }>(response.data);
   },
 
   // Get conversation by ID with messages
-  getConversation: async (id: string): Promise<ApiResponse<Conversation>> => {
-    const response = await api.get<ApiResponse<Conversation>>(`/messages/conversations/${id}`);
-    return response.data;
+  getConversation: async (id: string): Promise<Conversation> => {
+    const response = await api.get(`/messages/conversations/${id}`);
+    return unwrapData<Conversation>(response.data);
   },
 
   // Assign tutor to conversation (Admin)
-  assignTutor: async (conversationId: string, tutorId: string): Promise<ApiResponse<Conversation>> => {
-    const response = await api.post<ApiResponse<Conversation>>(
+  assignTutor: async (conversationId: string, tutorId: string): Promise<Conversation> => {
+    const response = await api.post(
       `/messages/conversations/${conversationId}/assign`,
       { tutorId }
     );
-    return response.data;
+    return unwrapData<Conversation>(response.data);
   },
 
   // Tutor accepts a conversation
-  acceptConversation: async (conversationId: string): Promise<ApiResponse<Conversation>> => {
-    const response = await api.post<ApiResponse<Conversation>>(
+  acceptConversation: async (conversationId: string): Promise<Conversation> => {
+    const response = await api.post(
       `/messages/conversations/${conversationId}/accept`
     );
-    return response.data;
+    return unwrapData<Conversation>(response.data);
   },
 
   // Close conversation
   closeConversation: async (
-    conversationId: string, 
+    conversationId: string,
     status: 'RESOLVED' | 'CLOSED'
-  ): Promise<ApiResponse<Conversation>> => {
-    const response = await api.post<ApiResponse<Conversation>>(
+  ): Promise<Conversation> => {
+    const response = await api.post(
       `/messages/conversations/${conversationId}/close`,
       { status }
     );
-    return response.data;
+    return unwrapData<Conversation>(response.data);
   },
 
   // Mark conversation as read
@@ -180,23 +226,23 @@ export const messagesApi = {
   },
 
   // Get calls for a specific conversation
-  getConversationCalls: async (conversationId: string): Promise<ApiResponse<CallLog[]>> => {
-    const response = await api.get<ApiResponse<CallLog[]>>(
+  getConversationCalls: async (conversationId: string): Promise<CallLog[]> => {
+    const response = await api.get(
       `/messages/conversations/${conversationId}/calls`
     );
-    return response.data;
+    return unwrapData<CallLog[]>(response.data);
   },
 
   // Get all call history
   getCallHistory: async (
     page = 1,
     limit = 20
-  ): Promise<ApiResponse<{ calls: CallLog[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>> => {
-    const response = await api.get<ApiResponse<{ calls: CallLog[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>>(
+  ): Promise<CallHistoryResponse> => {
+    const response = await api.get(
       '/messages/calls/history',
       { params: { page, limit } }
     );
-    return response.data;
+    return unwrapData<CallHistoryResponse>(response.data);
   },
 
   // Send message to existing conversation (alternative to WebSocket)
@@ -204,12 +250,12 @@ export const messagesApi = {
     conversationId: string,
     content: string,
     messageType: MessageType = MessageType.TEXT
-  ): Promise<ApiResponse<{ message: Message; conversation: Conversation }>> => {
-    const response = await api.post<ApiResponse<{ message: Message; conversation: Conversation }>>(
+  ): Promise<{ message: Message; conversation: Conversation }> => {
+    const response = await api.post(
       `/messages/conversations/${conversationId}/messages`,
       { content, messageType }
     );
-    return response.data;
+    return unwrapData<{ message: Message; conversation: Conversation }>(response.data);
   },
 
   // Send attachment(s) to a conversation
@@ -218,20 +264,20 @@ export const messagesApi = {
     files: File[],
     content?: string,
     onUploadProgress?: (progress: number) => void
-  ): Promise<ApiResponse<{ message: Message; attachments: Attachment[] }>> => {
+  ): Promise<{ message: Message; attachments: Attachment[] }> => {
     const formData = new FormData();
-    
+
     // Append each file
     files.forEach((file) => {
       formData.append('files', file);
     });
-    
+
     // Append optional text content
     if (content) {
       formData.append('content', content);
     }
 
-    const response = await api.post<ApiResponse<{ message: Message; attachments: Attachment[] }>>(
+    const response = await api.post(
       `/messages/conversations/${conversationId}/attachments${files.length > 1 ? '/multiple' : ''}`,
       formData,
       {
@@ -246,7 +292,7 @@ export const messagesApi = {
         },
       }
     );
-    return response.data;
+    return unwrapData<{ message: Message; attachments: Attachment[] }>(response.data);
   },
 
   // =====================
@@ -254,38 +300,31 @@ export const messagesApi = {
   // =====================
 
   // Add/toggle reaction on a message
-  addReaction: async (messageId: string, type: 'LIKE' | 'DISLIKE'): Promise<ApiResponse<{
-    added?: boolean;
-    updated?: boolean;
-    removed?: boolean;
-    type: 'LIKE' | 'DISLIKE';
-    reaction?: {
-      id: string;
-      messageId: string;
-      userId: string;
-      type: 'LIKE' | 'DISLIKE';
-      createdAt: string;
-    };
-  }>> => {
+  addReaction: async (messageId: string, type: 'LIKE' | 'DISLIKE'): Promise<ReactionResponse> => {
     const response = await api.post(`/messages/messages/${messageId}/reactions`, { type });
-    return response.data;
+    return unwrapData<ReactionResponse>(response.data);
   },
 
   // Remove reaction from a message
-  removeReaction: async (messageId: string): Promise<ApiResponse<{ success: boolean }>> => {
+  removeReaction: async (messageId: string): Promise<{ success: boolean }> => {
     const response = await api.delete(`/messages/messages/${messageId}/reactions`);
-    return response.data;
+    return unwrapData<{ success: boolean }>(response.data);
   },
 
   // Get reaction summary for a message
-  getReactionSummary: async (messageId: string): Promise<ApiResponse<{
+  getReactionSummary: async (messageId: string): Promise<{
     messageId: string;
     likeCount: number;
     dislikeCount: number;
     userReaction: 'LIKE' | 'DISLIKE' | null;
-  }>> => {
+  }> => {
     const response = await api.get(`/messages/messages/${messageId}/reactions`);
-    return response.data;
+    return unwrapData<{
+      messageId: string;
+      likeCount: number;
+      dislikeCount: number;
+      userReaction: 'LIKE' | 'DISLIKE' | null;
+    }>(response.data);
   },
 
   // ==========================
@@ -293,59 +332,30 @@ export const messagesApi = {
   // ==========================
 
   // Share a conversation
-  shareConversation: async (conversationId: string): Promise<ApiResponse<{
-    conversationId: string;
-    isShared: boolean;
-    shareToken: string;
-    shareUrl: string;
-    sharedAt: string;
-  }>> => {
+  shareConversation: async (conversationId: string): Promise<ShareResponse> => {
     const response = await api.post(`/messages/conversations/${conversationId}/share`);
-    return response.data;
+    return unwrapData<ShareResponse>(response.data);
   },
 
   // Stop sharing a conversation
-  unshareConversation: async (conversationId: string): Promise<ApiResponse<{
+  unshareConversation: async (conversationId: string): Promise<{
     conversationId: string;
     isShared: boolean;
-  }>> => {
+  }> => {
     const response = await api.delete(`/messages/conversations/${conversationId}/share`);
-    return response.data;
+    return unwrapData<{ conversationId: string; isShared: boolean }>(response.data);
   },
 
   // Get share status for a conversation
-  getShareStatus: async (conversationId: string): Promise<ApiResponse<{
-    conversationId: string;
-    isShared: boolean;
-    shareToken: string | null;
-    shareUrl: string | null;
-    sharedAt: string | null;
-  }>> => {
+  getShareStatus: async (conversationId: string): Promise<ShareStatus> => {
     const response = await api.get(`/messages/conversations/${conversationId}/share`);
-    return response.data;
+    return unwrapData<ShareStatus>(response.data);
   },
 
   // View a shared conversation
-  getSharedConversation: async (shareToken: string): Promise<ApiResponse<{
-    id: string;
-    subject: string;
-    topic?: string;
-    studentName: string;
-    tutorName?: string;
-    status: string;
-    createdAt: string;
-    messages: Array<{
-      id: string;
-      senderType: 'STUDENT' | 'TUTOR' | 'SYSTEM';
-      content?: string;
-      messageType: string;
-      likeCount: number;
-      dislikeCount: number;
-      createdAt: string;
-    }>;
-  }>> => {
+  getSharedConversation: async (shareToken: string): Promise<SharedConversationData> => {
     const response = await api.get(`/messages/shared/${shareToken}`);
-    return response.data;
+    return unwrapData<SharedConversationData>(response.data);
   },
 
   // ==========================
@@ -357,12 +367,12 @@ export const messagesApi = {
     conversationId: string,
     reason?: SessionCancelReason,
     reasonDetails?: string
-  ): Promise<ApiResponse<CancelWaitingSessionResponse>> => {
-    const response = await api.post<ApiResponse<CancelWaitingSessionResponse>>(
+  ): Promise<CancelWaitingSessionResponse> => {
+    const response = await api.post(
       `/messages/conversations/${conversationId}/cancel`,
       { reason, reasonDetails }
     );
-    return response.data;
+    return unwrapData<CancelWaitingSessionResponse>(response.data);
   },
 };
 

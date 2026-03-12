@@ -139,8 +139,8 @@ export function TutorActiveSession({
     const fetchTutorRoomToken = async () => {
       try {
         const response = await tutorSessionApi.getTutorRoomToken(session.id);
-        console.log('[TutorActiveSession] Tutor room token received:', response.data);
-        setDailyRoom(response.data);
+        console.log('[TutorActiveSession] Tutor room token received:', response);
+        setDailyRoom(response);
         toast.success('Video call ready!');
       } catch (error) {
         console.error('[TutorActiveSession] Failed to get tutor room token:', error);
@@ -258,9 +258,9 @@ export function TutorActiveSession({
   // Refresh chat history
   const refreshChatHistory = useCallback(async () => {
     try {
-      const response = await tutorSessionApi.getChatHistory(session.id);
-      setAiChatHistory(response.data.messages);
-      setLiveSharingEnabled(response.data.liveSharingEnabled);
+      const chatHistory = await tutorSessionApi.getChatHistory(session.id);
+      setAiChatHistory(chatHistory.messages);
+      setLiveSharingEnabled(chatHistory.liveSharingEnabled);
     } catch (error) {
       console.error('Failed to refresh chat history:', error);
     }
@@ -272,8 +272,8 @@ export function TutorActiveSession({
       console.log('[TutorActiveSession] Loading combined chat history');
 
       // Get AI chat history
-      const aiChatResponse = await tutorSessionApi.getChatHistory(session.id);
-      const aiMessages: CombinedChatMessage[] = aiChatResponse.data.messages.map((msg: any) => ({
+      const aiChatHistory = await tutorSessionApi.getChatHistory(session.id);
+      const aiMessages: CombinedChatMessage[] = aiChatHistory.messages.map((msg: any) => ({
         id: msg.id,
         role: msg.role,
         content: msg.content,
@@ -285,8 +285,7 @@ export function TutorActiveSession({
       // Get Daily.co meeting data (including webhook-captured chat)
       let videoMessages: CombinedChatMessage[] = [];
       try {
-        const meetingDataResponse = await tutorSessionApi.getDailyMeetingData(session.id);
-        const meetingData = meetingDataResponse.data;
+        const meetingData = await tutorSessionApi.getDailyMeetingData(session.id);
 
         if (meetingData?.chatMessages && meetingData.chatMessages.length > 0) {
           videoMessages = meetingData.chatMessages.map((msg: any, index: number) => ({

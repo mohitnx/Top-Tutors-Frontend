@@ -4,6 +4,9 @@ import {
   TutorStatusUpdateEvent,
   TutorConnectedEvent,
   TutorWaitUpdateEvent,
+  CouncilStatusEvent,
+  CouncilMemberCompleteEvent,
+  CouncilSynthesisStartEvent,
 } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
@@ -233,6 +236,56 @@ export const offSessionStatusChanged = (callback?: (data: any) => void): void =>
 };
 
 // ============================================
+// Council Mode Event Listeners
+// ============================================
+
+export const onCouncilStatus = (callback: (data: CouncilStatusEvent) => void): void => {
+  geminiSocket?.on('councilStatus', callback);
+};
+
+export const offCouncilStatus = (callback?: (data: CouncilStatusEvent) => void): void => {
+  if (callback) {
+    geminiSocket?.off('councilStatus', callback);
+  } else {
+    geminiSocket?.off('councilStatus');
+  }
+};
+
+export const onCouncilMemberComplete = (callback: (data: CouncilMemberCompleteEvent) => void): void => {
+  geminiSocket?.on('councilMemberComplete', callback);
+};
+
+export const offCouncilMemberComplete = (callback?: (data: CouncilMemberCompleteEvent) => void): void => {
+  if (callback) {
+    geminiSocket?.off('councilMemberComplete', callback);
+  } else {
+    geminiSocket?.off('councilMemberComplete');
+  }
+};
+
+export const onCouncilSynthesisStart = (callback: (data: CouncilSynthesisStartEvent) => void): void => {
+  geminiSocket?.on('councilSynthesisStart', callback);
+};
+
+export const offCouncilSynthesisStart = (callback?: (data: CouncilSynthesisStartEvent) => void): void => {
+  if (callback) {
+    geminiSocket?.off('councilSynthesisStart', callback);
+  } else {
+    geminiSocket?.off('councilSynthesisStart');
+  }
+};
+
+// ============================================
+// Typing Indicator
+// ============================================
+
+export const sendGeminiTyping = (data: { sessionId: string; isTyping: boolean }): void => {
+  if (geminiSocket?.connected) {
+    geminiSocket.emit('typing', data);
+  }
+};
+
+// ============================================
 // Export Default
 // ============================================
 
@@ -258,5 +311,12 @@ export default {
   offTutorAccepted,
   onSessionStatusChanged,
   offSessionStatusChanged,
+  onCouncilStatus,
+  offCouncilStatus,
+  onCouncilMemberComplete,
+  offCouncilMemberComplete,
+  onCouncilSynthesisStart,
+  offCouncilSynthesisStart,
+  sendGeminiTyping,
 };
 

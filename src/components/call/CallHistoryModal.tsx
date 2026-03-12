@@ -126,15 +126,11 @@ export function CallHistoryModal({ isOpen, onClose, conversationId }: CallHistor
       setError(null);
       try {
         if (conversationId) {
-          const response = await messagesApi.getConversationCalls(conversationId);
-          if (response.success && response.data) {
-            setCalls(response.data);
-          }
+          const calls = await messagesApi.getConversationCalls(conversationId);
+          setCalls(calls);
         } else {
-          const response = await messagesApi.getCallHistory(1, 50);
-          if (response.success && response.data) {
-            setCalls(response.data.calls);
-          }
+          const result = await messagesApi.getCallHistory(1, 50);
+          setCalls(result.calls);
         }
       } catch (err) {
         console.error('Failed to fetch call history:', err);

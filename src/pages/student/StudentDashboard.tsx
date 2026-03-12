@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { 
-  Send, Mic, Sparkles, Loader2, 
+import {
+  Send, Mic, Sparkles, Loader2,
   Play, Pause, X, Trash2, FileText,
   ThumbsUp, ThumbsDown, RotateCcw, UserPlus,
-  StopCircle, Paperclip
+  StopCircle, Paperclip, ChevronDown, ChevronRight,
+  Users, Zap, RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { geminiChatApi, tutorSessionApi } from '../../api';
-import { AIMessage, DailyRoom } from '../../types';
+import { AIMessage, AIChatMode, DailyRoom, CouncilMemberResponse } from '../../types';
 import { useGeminiChat } from '../../hooks/useGeminiChat';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
-import { TutorSessionPanel, StudentActiveSession } from '../../components/tutorSession';
+import { StudentActiveSession } from '../../components/tutorSession';
+import { TutorSessionPanel } from '../../components/tutorSession';
 import {
   connectTutorSessionSocket,
   disconnectTutorSessionSocket,
@@ -19,13 +21,8 @@ import {
   joinSession,
   getChatHistory,
   getWhiteboardData,
-  sendChatMessage,
   onTutorSessionSocketConnect,
-  getTutorSessionSocket,
 } from '../../services/tutorSessionSocket';
-import {
-  getSocket,
-} from '../../services/socket';
 import {
   getGeminiSocket,
   onTutorAccepted,
@@ -50,42 +47,303 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Message component with markdown rendering
-interface MessageBubbleProps {
-  message: AIMessage;
-  isStreaming?: boolean;
-  streamingContent?: string;
-  streamStatusText?: string | null;
-  showRetryWhileStreaming?: boolean;
-  onRetry?: () => void;
-  onFeedback?: (feedback: 'GOOD' | 'BAD') => void;
+// ============================================================================
+// Council Expert Card (completed, expandable)
+// ============================================================================
+function ExpertCard({ memberLabel, memberName, content }: {
+  memberLabel: string;
+  memberName: string;
+  content: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const confidence = confidenceColor(content);
+  const keyPoints = extractKeyPoints(content);
+
+  return (
+    <div className="bg-[#1a1a1a] border border-gray-800/50 rounded-xl p-3 transition-all">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full text-left"
+      >
+        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">{memberLabel}</span>
+        <span className="text-sm font-medium text-gray-200 flex-1">{memberName}</span>
+        <span className="flex items-center gap-1 mr-1" title={`${confidence.label} confidence`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${confidence.dot}`} />
+        </span>
+        <ChevronRight className={`w-3.5 h-3.5 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+
+      {/* Key points pills (always visible) */}
+      {keyPoints.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {keyPoints.map((point, i) => (
+            <span
+              key={i}
+              className="inline-block text-[10px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700/50 truncate max-w-[200px]"
+            >
+              {point}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {expanded && (
+        <div className="mt-2 text-sm text-gray-400 prose prose-invert prose-sm max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      )}
+    </div>
+  );
 }
 
+// ============================================================================
+// Council Responses Display (collapsible on completed messages)
+// ============================================================================
+function CouncilResponsesDisplay({ responses }: { responses: CouncilMemberResponse[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!responses || responses.length === 0) return null;
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 text-xs text-violet-400 hover:text-violet-300 transition-colors"
+      >
+        <Users className="w-3.5 h-3.5" />
+        <span>View Expert Breakdown</span>
+        <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {responses.map((r) => (
+            <ExpertCard
+              key={r.memberId}
+              memberLabel={r.memberLabel}
+              memberName={r.memberName}
+              content={r.content}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** Extract short key-point phrases from expert content (first 3 bullet / sentence fragments). */
+function extractKeyPoints(content: string, max = 3): string[] {
+  // Try bullet points first (- or * or numbered)
+  const bullets = content.match(/^[\s]*[-*•]\s+(.+)/gm);
+  if (bullets && bullets.length > 0) {
+    return bullets.slice(0, max).map((b) => b.replace(/^[\s]*[-*•]\s+/, '').replace(/[.*#`]/g, '').trim().slice(0, 60));
+  }
+  // Fall back to first N sentences
+  const sentences = content.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 10);
+  return sentences.slice(0, max).map((s) => s.replace(/[*#`]/g, '').trim().slice(0, 60));
+}
+
+/** Confidence color based on content depth (word count as a proxy). */
+function confidenceColor(content: string): { dot: string; label: string } {
+  const words = content.split(/\s+/).length;
+  if (words >= 120) return { dot: 'bg-emerald-400', label: 'High' };
+  if (words >= 60) return { dot: 'bg-amber-400', label: 'Medium' };
+  return { dot: 'bg-gray-400', label: 'Low' };
+}
+
+// ============================================================================
+// Streaming Council Progress (horizontal cards)
+// ============================================================================
+
+const EXPERT_DEFAULTS: Array<{ id: string; name: string; label: string; analyzingText: string }> = [
+  { id: 'conceptual', name: 'Concept Master', label: 'Theory', analyzingText: 'Analyzing the underlying theory...' },
+  { id: 'practical', name: 'Practice Guide', label: 'Solution', analyzingText: 'Breaking down the solution steps...' },
+  { id: 'clarity', name: 'Clarity Expert', label: 'Insight', analyzingText: 'Finding the perfect analogy...' },
+];
+
+function StreamingCouncilProgress({ councilExperts, councilMembers, isSynthesizing }: {
+  councilExperts: Array<{ id: string; name: string; label: string; status: string }>;
+  councilMembers: Array<{ memberId: string; memberName: string; memberLabel: string; content: string }>;
+  isSynthesizing: boolean;
+}) {
+  // Use backend experts if available, otherwise defaults
+  const experts = councilExperts.length > 0
+    ? councilExperts.map((e) => ({
+        ...e,
+        analyzingText: EXPERT_DEFAULTS.find((d) => d.id === e.id)?.analyzingText || 'Analyzing...',
+      }))
+    : EXPERT_DEFAULTS.map((d) => ({ ...d, status: 'analyzing' }));
+
+  const allDone = councilMembers.length >= 3;
+  const isCrossReviewing = allDone && !isSynthesizing;
+
+  if (isSynthesizing) {
+    return (
+      <div className="mb-4">
+        <div className="flex items-center gap-2 text-sm text-violet-300 mb-2">
+          <Sparkles className="w-4 h-4" />
+          <span className="font-medium">Combining expert perspectives into your personalized answer...</span>
+        </div>
+        <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full animate-pulse" style={{ width: '100%' }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 text-sm text-gray-300 mb-3">
+        <Users className="w-4 h-4 text-violet-400" />
+        <span>
+          {isCrossReviewing
+            ? 'Cross-reviewing expert perspectives...'
+            : 'Our experts are analyzing your question...'}
+        </span>
+      </div>
+
+      {/* Cross-reviewing animation bar */}
+      {isCrossReviewing && (
+        <div className="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+          <RefreshCw className="w-3.5 h-3.5 text-violet-400 animate-spin" />
+          <span className="text-xs text-violet-300">Experts are reviewing each other's analysis for accuracy...</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-2">
+        {experts.map((expert) => {
+          const completed = councilMembers.find((m) => m.memberId === expert.id);
+          const isDone = completed || expert.status === 'done';
+          const confidence = completed ? confidenceColor(completed.content) : null;
+
+          return (
+            <div
+              key={expert.id}
+              className={`rounded-xl border p-3 transition-all ${
+                isDone
+                  ? 'bg-[#1a1a1a] border-emerald-500/30'
+                  : 'bg-[#1a1a1a] border-gray-800/50 animate-pulse'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">
+                  {completed?.memberLabel || expert.label}
+                </span>
+                {isDone && confidence && (
+                  <span className="flex items-center gap-1 ml-auto" title={`${confidence.label} confidence`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${confidence.dot}`} />
+                    <span className="text-[9px] text-gray-500">{confidence.label}</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-xs font-medium text-gray-300 mb-1">
+                {completed?.memberName || expert.name}
+              </p>
+              {isDone && completed ? (
+                <p className="text-[11px] text-gray-500 line-clamp-2">{completed.content.slice(0, 100)}...</p>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                  <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
+                  <span>{expert.analyzingText}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Mode Toggle
+// ============================================================================
+function ModeToggle({ mode, onChange, disabled }: {
+  mode: AIChatMode;
+  onChange: (mode: AIChatMode) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center bg-[#1a1a1a] rounded-xl border border-gray-800 p-0.5">
+      <button
+        onClick={() => onChange('SINGLE')}
+        disabled={disabled}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+          mode === 'SINGLE'
+            ? 'bg-violet-500/20 text-violet-300'
+            : 'text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        <Zap className="w-3 h-3" />
+        Single AI
+      </button>
+      <button
+        onClick={() => onChange('COUNCIL')}
+        disabled={disabled}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+          mode === 'COUNCIL'
+            ? 'bg-violet-500/20 text-violet-300'
+            : 'text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        <Users className="w-3 h-3" />
+        AI Council
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// Message Bubble
+// ============================================================================
 function MessageBubble({
   message,
   isStreaming,
   streamingContent,
   streamStatusText,
   showRetryWhileStreaming,
+  councilAnalyzing,
+  councilExperts,
+  councilMembers,
+  isSynthesizing,
+  isCouncilMode,
   onRetry,
   onFeedback,
-}: MessageBubbleProps) {
+}: {
+  message: AIMessage;
+  isStreaming?: boolean;
+  streamingContent?: string;
+  streamStatusText?: string | null;
+  showRetryWhileStreaming?: boolean;
+  councilAnalyzing?: boolean;
+  councilExperts?: Array<{ id: string; name: string; label: string; status: string }>;
+  councilMembers?: Array<{ memberId: string; memberName: string; memberLabel: string; content: string }>;
+  isSynthesizing?: boolean;
+  isCouncilMode?: boolean;
+  onRetry?: () => void;
+  onFeedback?: (feedback: 'GOOD' | 'BAD') => void;
+}) {
   const isUser = message.role === 'USER';
   const content = isStreaming ? streamingContent : message.content;
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
       <div className={`${isUser ? 'max-w-[85%]' : 'max-w-[90%]'}`}>
-        {/* AI label */}
         {!isUser && (
           <div className="flex items-center gap-1.5 mb-1.5">
             <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
               <Sparkles className="w-2.5 h-2.5 text-white" />
             </div>
             <span className="text-xs font-medium text-gray-400">AI Tutor</span>
+            {message.councilResponses && message.councilResponses.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 font-medium">Council</span>
+            )}
           </div>
         )}
-        
+
         <div
           className={`rounded-2xl px-4 py-3 ${
             isUser
@@ -93,17 +351,12 @@ function MessageBubble({
               : 'bg-transparent text-gray-100'
           }`}
         >
-          {/* Attachments */}
           {message.attachments && message.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {message.attachments.map((att, i) => (
                 <div key={i} className="relative group">
-                  {att.type.startsWith('image/') ? (
-                    <img
-                      src={att.url}
-                      alt={att.name}
-                      className="max-w-[200px] max-h-[150px] rounded-lg object-cover"
-                    />
+                  {att.type.startsWith('image/') || att.type === 'image' ? (
+                    <img src={att.url} alt={att.name} className="max-w-[200px] max-h-[150px] rounded-lg object-cover" />
                   ) : (
                     <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/50 rounded-lg">
                       <FileText className="w-4 h-4 text-violet-400" />
@@ -115,7 +368,6 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Audio message */}
           {message.audioUrl && (
             <div className="mb-2">
               <audio src={message.audioUrl} controls className="w-full max-w-[250px]" />
@@ -125,19 +377,25 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Message content */}
+          {/* Council streaming progress — show as soon as council events arrive, even before streaming starts */}
+          {isCouncilMode && (councilAnalyzing || (councilMembers && councilMembers.length > 0) || isSynthesizing) && (
+            <StreamingCouncilProgress
+              councilExperts={councilExperts || []}
+              councilMembers={councilMembers || []}
+              isSynthesizing={isSynthesizing || false}
+            />
+          )}
+
           {content && (
-            <div className={`prose prose-invert prose-sm max-w-none`}>
+            <div className="prose prose-invert prose-sm max-w-none">
               {isUser ? (
                 <p className="m-0 whitespace-pre-wrap">{content}</p>
               ) : (
-                <ReactMarkdown 
+                <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
                     pre: ({ children }) => (
-                      <pre className="bg-gray-900/50 rounded-lg p-3 overflow-x-auto text-sm">
-                        {children}
-                      </pre>
+                      <pre className="bg-gray-900/50 rounded-lg p-3 overflow-x-auto text-sm">{children}</pre>
                     ),
                     code: ({ children, className }) => {
                       const isInline = !className;
@@ -155,24 +413,21 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Streaming cursor */}
-          {isStreaming && (
-            <span className="inline-block w-2 h-5 bg-violet-400 ml-1 animate-pulse rounded-sm" />
-          )}
+          {isStreaming && <span className="inline-block w-2 h-5 bg-violet-400 ml-1 animate-pulse rounded-sm" />}
         </div>
+
+        {/* Council responses on completed messages */}
+        {!isUser && !isStreaming && message.councilResponses && (
+          <CouncilResponsesDisplay responses={message.councilResponses} />
+        )}
 
         {/* Streaming status */}
         {!isUser && isStreaming && (
           <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
             <Loader2 className="w-3.5 h-3.5 text-violet-400 animate-spin" />
-            <span className="flex-1">
-              {streamStatusText || 'Generating…'}
-            </span>
+            <span className="flex-1">{streamStatusText || 'Generating...'}</span>
             {showRetryWhileStreaming && (
-              <button
-                onClick={onRetry}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 rounded-lg transition-colors"
-              >
+              <button onClick={onRetry} className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-800/60 rounded-lg transition-colors">
                 <RotateCcw className="w-3 h-3" />
                 Retry
               </button>
@@ -180,20 +435,13 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Message actions for AI messages */}
+        {/* Feedback / error actions */}
         {!isUser && !isStreaming && (
           <div className="flex items-center gap-1 mt-1.5">
             {message.hasError ? (
               <>
-                {message.errorMessage && (
-                  <div className="flex-1 text-xs text-red-400">
-                    {message.errorMessage}
-                  </div>
-                )}
-                <button
-                  onClick={onRetry}
-                  className="flex items-center gap-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
-                >
+                {message.errorMessage && <div className="flex-1 text-xs text-red-400">{message.errorMessage}</div>}
+                <button onClick={onRetry} className="flex items-center gap-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
                   <RotateCcw className="w-3 h-3" />
                   Retry
                 </button>
@@ -202,22 +450,14 @@ function MessageBubble({
               <>
                 <button
                   onClick={() => onFeedback?.('GOOD')}
-                  className={`p-1.5 rounded-lg transition-colors ${
-                    message.feedback === 'GOOD'
-                      ? 'text-emerald-400 bg-emerald-500/10'
-                      : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'
-                  }`}
+                  className={`p-1.5 rounded-lg transition-colors ${message.feedback === 'GOOD' ? 'text-emerald-400 bg-emerald-500/10' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'}`}
                   title="Good response"
                 >
                   <ThumbsUp className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => onFeedback?.('BAD')}
-                  className={`p-1.5 rounded-lg transition-colors ${
-                    message.feedback === 'BAD'
-                      ? 'text-red-400 bg-red-500/10'
-                      : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'
-                  }`}
+                  className={`p-1.5 rounded-lg transition-colors ${message.feedback === 'BAD' ? 'text-red-400 bg-red-500/10' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'}`}
                   title="Bad response"
                 >
                   <ThumbsDown className="w-3.5 h-3.5" />
@@ -231,22 +471,25 @@ function MessageBubble({
   );
 }
 
-
+// ============================================================================
+// Main StudentDashboard
+// ============================================================================
 export function StudentDashboard() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   // Session state
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
-  
+  const [currentMode, setCurrentMode] = useState<AIChatMode>('SINGLE');
+
   // Input state
   const [input, setInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
-  
+
   // Active tutor session state
   const [activeTutorSession, setActiveTutorSession] = useState<{
     tutorSessionId: string;
@@ -255,26 +498,19 @@ export function StudentDashboard() {
     dailyRoom?: DailyRoom;
   } | null>(null);
   const [liveSharingEnabled, setLiveSharingEnabled] = useState(false);
-  
+
   // Audio recording
   const [isAudioMode, setIsAudioMode] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastUserMessageRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   const {
-    isRecording,
-    isPaused,
-    duration,
-    audioUrl,
-    startRecording,
-    stopRecording,
-    pauseRecording,
-    resumeRecording,
-    resetRecording,
-    getAudioFile,
+    isRecording, isPaused, duration, audioUrl,
+    startRecording, stopRecording, pauseRecording, resumeRecording,
+    resetRecording, getAudioFile,
   } = useAudioRecorder(300);
 
   // Tutor session panel state
@@ -285,268 +521,148 @@ export function StudentDashboard() {
 
   // Gemini chat hook
   const {
-    isStreaming,
-    streamingContent,
-    streamUx,
-    prepareForRetry,
-    sendMessage,
-    sendMessageWithAttachments,
-    sendAudioMessage,
-    retryMessage,
-    addFeedback,
+    isStreaming, isWaitingForStream, streamingContent, streamUx,
+    councilAnalyzing, councilExperts, councilMembers, isSynthesizing,
+    prepareForRetry, sendMessage, sendMessageWithAttachments,
+    sendAudioMessage, retryMessage, addFeedback,
   } = useGeminiChat({
     sessionId: currentSessionId || undefined,
     onStreamStart: (messageId, sessionId) => {
-      console.log('[StudentDashboard] Stream started:', messageId);
-      // Update session ID if it was a new session
       if (!currentSessionId && sessionId) {
         setCurrentSessionId(sessionId);
         setSearchParams({ session: sessionId });
       }
-      // Clear any previous error for this message id and create/update streaming placeholder
       setMessages((prev) => {
         const existing = prev.find((m) => m.id === messageId);
         if (existing) {
-          setStreamingMessage({
-            ...existing,
-            hasError: false,
-            errorMessage: null,
-            isStreaming: true,
-            isComplete: false,
-          });
+          setStreamingMessage({ ...existing, hasError: false, errorMessage: null, isStreaming: true, isComplete: false });
         } else {
           setStreamingMessage({
-            id: messageId,
-            sessionId,
-            role: 'ASSISTANT',
-            content: '',
-            attachments: null,
-            audioUrl: null,
-            transcription: null,
-            isStreaming: true,
-            isComplete: false,
-            hasError: false,
-            errorMessage: null,
-            feedback: null,
-            createdAt: new Date().toISOString(),
+            id: messageId, sessionId, role: 'ASSISTANT', content: '',
+            attachments: null, audioUrl: null, transcription: null,
+            isStreaming: true, isComplete: false, hasError: false, errorMessage: null,
+            feedback: null, councilResponses: null, createdAt: new Date().toISOString(),
           });
         }
-
-        return prev.map((m) =>
-          m.id === messageId ? { ...m, hasError: false, errorMessage: null } : m
-        );
+        return prev.map((m) => m.id === messageId ? { ...m, hasError: false, errorMessage: null } : m);
       });
     },
     onStreamEnd: (chunk) => {
-      console.log('[StudentDashboard] Stream ended');
-      // Add final message to messages (avoid duplicates)
       setMessages((prev) => {
         const finalContent = chunk.fullContent ?? streamingContent ?? '';
+        const councilData = councilMembers.length > 0
+          ? councilMembers.map((cm) => ({
+              memberId: cm.memberId as 'conceptual' | 'practical' | 'clarity',
+              memberName: cm.memberName,
+              memberLabel: cm.memberLabel,
+              content: cm.content,
+            }))
+          : null;
 
-        // If the message already exists (e.g. retry), update it
         if (prev.some((m) => m.id === chunk.messageId)) {
           return prev.map((m) =>
             m.id === chunk.messageId
-              ? {
-                  ...m,
-                  content: finalContent,
-                  isStreaming: false,
-                  isComplete: true,
-                  hasError: false,
-                  errorMessage: null,
-                }
+              ? { ...m, content: finalContent, isStreaming: false, isComplete: true, hasError: false, errorMessage: null, councilResponses: councilData || m.councilResponses }
               : m
           );
         }
-
         return [
           ...prev,
           {
-            id: chunk.messageId,
-            sessionId: chunk.sessionId,
-            role: 'ASSISTANT',
-            content: finalContent,
-            attachments: null,
-            audioUrl: null,
-            transcription: null,
-            isStreaming: false,
-            isComplete: true,
-            hasError: false,
-            errorMessage: null,
-            feedback: null,
-            createdAt: new Date().toISOString(),
+            id: chunk.messageId, sessionId: chunk.sessionId, role: 'ASSISTANT' as const,
+            content: finalContent, attachments: null, audioUrl: null, transcription: null,
+            isStreaming: false, isComplete: true, hasError: false, errorMessage: null,
+            feedback: null, councilResponses: councilData, createdAt: new Date().toISOString(),
           },
         ];
       });
       setStreamingMessage(null);
     },
     onStreamError: (chunk) => {
-      console.error('[StudentDashboard] Stream error:', chunk.error);
-      // Add error message to messages (avoid duplicates)
       setMessages((prev) => {
-        // Check if message already exists
         if (prev.some((m) => m.id === chunk.messageId)) {
-          // Update existing message with error
           return prev.map((m) =>
             m.id === chunk.messageId
-              ? {
-                  ...m,
-                  content: chunk.fullContent ?? m.content,
-                  hasError: true,
-                  errorMessage: chunk.error || 'Unknown error',
-                  isStreaming: false,
-                  isComplete: false,
-                }
+              ? { ...m, content: chunk.fullContent ?? m.content, hasError: true, errorMessage: chunk.error || 'Unknown error', isStreaming: false, isComplete: false }
               : m
           );
         }
         return [
           ...prev,
           {
-            id: chunk.messageId,
-            sessionId: chunk.sessionId,
-            role: 'ASSISTANT',
+            id: chunk.messageId, sessionId: chunk.sessionId, role: 'ASSISTANT' as const,
             content: streamingContent || 'Failed to generate response',
-            attachments: null,
-            audioUrl: null,
-            transcription: null,
-            isStreaming: false,
-            isComplete: false,
-            hasError: true,
+            attachments: null, audioUrl: null, transcription: null,
+            isStreaming: false, isComplete: false, hasError: true,
             errorMessage: chunk.error || 'Unknown error',
-            feedback: null,
-            createdAt: new Date().toISOString(),
+            feedback: null, councilResponses: null, createdAt: new Date().toISOString(),
           },
         ];
       });
       setStreamingMessage(null);
     },
-    onTutorStatusUpdate: (data) => {
-      toast(data.message, { icon: '👋' });
-    },
-    onTutorConnected: (data) => {
-      toast.success(data.message);
-    },
-    onTutorWaitUpdate: (data) => {
-      toast(data.message, { icon: '⏳' });
-    },
+    onTutorStatusUpdate: (data) => toast(data.message, { icon: '\ud83d\udc4b' }),
+    onTutorConnected: (data) => toast.success(data.message),
+    onTutorWaitUpdate: (data) => toast(data.message, { icon: '\u23f3' }),
   });
 
-  // Connect to tutor session socket when we have an AI session OR active tutor session
+  // Connect to tutor session socket
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     const shouldConnect = token && (currentSessionId || activeTutorSession);
-
     if (!shouldConnect) return;
 
-    console.log('[StudentDashboard] Connecting to tutor session socket, token present:', !!token);
     connectTutorSessionSocket(token);
+    if (currentSessionId) subscribeToAISession(currentSessionId);
 
-    // Subscribe to AI session if we have one
-    if (currentSessionId) {
-      subscribeToAISession(currentSessionId);
-    }
-
-    // Join the AI session room on GEMINI socket to receive tutorAccepted
     const geminiSocket = getGeminiSocket();
     if (geminiSocket?.connected && currentSessionId) {
-      console.log('[StudentDashboard] Gemini socket connected, joining AI room:', `ai:${currentSessionId}`);
       geminiSocket.emit('joinRoom', `ai:${currentSessionId}`);
-    } else if (currentSessionId) {
-      console.log('[StudentDashboard] Gemini socket not connected yet');
     }
 
     return () => {
-      // Only disconnect if we're not in an active tutor session
-      if (!activeTutorSession) {
-        console.log('[StudentDashboard] Disconnecting tutor session socket');
-        disconnectTutorSessionSocket();
-      }
-
-      // Leave the AI room on Gemini socket
+      if (!activeTutorSession) disconnectTutorSessionSocket();
       if (currentSessionId) {
-        const geminiSocket = getGeminiSocket();
-        if (geminiSocket?.connected) {
-          geminiSocket.emit('leaveRoom', `ai:${currentSessionId}`);
-        }
+        const gs = getGeminiSocket();
+        if (gs?.connected) gs.emit('leaveRoom', `ai:${currentSessionId}`);
       }
     };
   }, [currentSessionId, activeTutorSession]);
 
-  // Listen for tutor accepted event on gemini socket
+  // Listen for tutor accepted event
   useEffect(() => {
-    console.log('[StudentDashboard] Setting up tutorAccepted listener on gemini socket');
-
     const handleTutorAccepted = async (data: any) => {
-      console.log('[StudentDashboard] Tutor accepted event received:', data);
-
-      // Close tutor panel
       setShowTutorPanel(false);
-
-      // Handle the event data
       if (data.tutorSessionId && data.tutor) {
-        console.log('[StudentDashboard] Setting up tutor session');
         setActiveTutorSession({
           tutorSessionId: data.tutorSessionId,
           tutorName: data.tutor.name,
           tutorAvatar: data.tutor.avatar,
         });
-        // Only show toast on student side - tutor side shows its own notification
-        toast.success(`🎉 ${data.tutor.name} connected! Starting video call...`);
-
-        // Get room token for student and join session
+        toast.success(`${data.tutor.name} connected! Starting video call...`);
         try {
-          console.log('[StudentDashboard] Getting room token for session:', data.tutorSessionId);
           const response = await tutorSessionApi.getStudentRoomToken(data.tutorSessionId);
-          console.log('[StudentDashboard] Room token response:', response);
-          setActiveTutorSession(prev => prev ? {
-            ...prev,
-            dailyRoom: response.data,
-          } : null);
-
-          // Try to join session and load data immediately, with retry logic
+          setActiveTutorSession((prev) => prev ? { ...prev, dailyRoom: response } : null);
           const setupSession = () => {
-            console.log('[StudentDashboard] Setting up session:', data.tutorSessionId);
             joinSession(data.tutorSessionId);
             getChatHistory(data.tutorSessionId);
             getWhiteboardData(data.tutorSessionId);
           };
-
-          // Try immediately
           setupSession();
-
-          // Also set up a listener in case socket connects later
           let unsubscribe: (() => void) | null = null;
           unsubscribe = onTutorSessionSocketConnect(() => {
-            console.log('[StudentDashboard] Socket connected later, re-setting up session');
             setupSession();
-            if (unsubscribe) {
-              unsubscribe(); // Remove listener after first connection
-            }
+            if (unsubscribe) unsubscribe();
           });
-
-          // Retry after a delay in case socket wasn't ready
-          setTimeout(() => {
-            console.log('[StudentDashboard] Retrying session setup');
-            setupSession();
-          }, 2000);
-
-          console.log('[StudentDashboard] Session setup initiated');
+          setTimeout(setupSession, 2000);
         } catch (error: any) {
-          console.error('[StudentDashboard] Failed to setup session:', error);
-          console.error('[StudentDashboard] Error details:', error?.response?.data || error?.message);
           toast.error(`Session setup failed: ${error?.response?.data?.message || error?.message || 'Unknown error'}`);
         }
-      } else {
-        console.log('[StudentDashboard] Incomplete event data:', data);
-        toast.error('Invalid session data received');
       }
     };
 
     const handleSessionStatusChanged = (data: any) => {
-      console.log('[StudentDashboard] Session status changed:', data);
       if (data.sessionId === activeTutorSession?.tutorSessionId) {
-        // Handle session status changes (COMPLETED, CANCELLED, etc.)
         if (data.status === 'COMPLETED' || data.status === 'CANCELLED') {
           setActiveTutorSession(null);
           toast('Session has ended');
@@ -554,141 +670,24 @@ export function StudentDashboard() {
       }
     };
 
-    // Set up listeners on gemini socket
     onTutorAccepted(handleTutorAccepted);
     onSessionStatusChanged(handleSessionStatusChanged);
-
-    return () => {
-      offTutorAccepted();
-      offSessionStatusChanged();
-    };
+    return () => { offTutorAccepted(); offSessionStatusChanged(); };
   }, [activeTutorSession?.tutorSessionId]);
 
-  // 🚨 EMERGENCY TEST FUNCTIONS
-  useEffect(() => {
-    // Global test function
-    (window as any).FORCE_TUTOR_ACCEPTED = (data: any = {}) => {
-      console.log('[EMERGENCY] Forcing tutor accepted event');
-      const eventData = {
-        tutorSessionId: data.tutorSessionId || 'emergency-' + Date.now(),
-        tutor: {
-          id: 'tutor-123',
-          name: data.tutorName || 'Emergency Tutor',
-          avatar: data.tutorAvatar || null
-        },
-        ...data
-      };
-
-      setShowTutorPanel(false);
-      setActiveTutorSession({
-        tutorSessionId: eventData.tutorSessionId,
-        tutorName: eventData.tutor.name,
-        tutorAvatar: eventData.tutor.avatar,
-      });
-      toast.success(`🚨 EMERGENCY: ${eventData.tutor.name} connected!`);
-      console.log('[EMERGENCY] UI should update now');
-    };
-
-    // Check socket status
-    (window as any).CHECK_SOCKET = () => {
-      const socket = getSocket();
-      console.log('[EMERGENCY] Regular socket status:', {
-        connected: socket?.connected,
-        id: socket?.id,
-        rooms: (socket as any)?.rooms
-      });
-
-      // Also check Gemini socket
-      const geminiSocket = getGeminiSocket();
-      console.log('[EMERGENCY] Gemini socket status:', {
-        connected: geminiSocket?.connected,
-        id: geminiSocket?.id,
-        rooms: (geminiSocket as any)?.rooms
-      });
-
-      return { regular: socket, gemini: geminiSocket };
-    };
-
-    // Test backend event emission
-    (window as any).TEST_BACKEND_EVENT = async (sessionId?: string) => {
-      const targetSessionId = sessionId || currentSessionId;
-      console.log('🧪 Testing backend event emission for session:', targetSessionId);
-
-      try {
-        const response = await fetch(`http://localhost:3000/api/v1/tutor-session/test-notification/${targetSessionId}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        const result = await response.json();
-        console.log('🧪 Backend response:', response.status, result);
-        return result;
-      } catch (error) {
-        console.error('🧪 Backend test failed:', error);
-        return { error: (error as Error).message };
-      }
-    };
-
-    // Test socket events
-    (window as any).TEST_SOCKET_EVENTS = () => {
-      if (activeTutorSession) {
-        console.log('🧪 Testing socket events for session:', activeTutorSession.tutorSessionId);
-        joinSession(activeTutorSession.tutorSessionId);
-        getChatHistory(activeTutorSession.tutorSessionId);
-        getWhiteboardData(activeTutorSession.tutorSessionId);
-      } else {
-        console.log('🧪 No active tutor session');
-      }
-    };
-
-    // Test sending chat message
-    (window as any).TEST_SEND_CHAT = (message: string) => {
-      if (activeTutorSession) {
-        console.log('🧪 Sending test chat message:', message);
-        sendChatMessage(activeTutorSession.tutorSessionId, message);
-      } else {
-        console.log('🧪 No active tutor session');
-      }
-    };
-
-    // Check socket status
-    (window as any).CHECK_SOCKET_STATUS = () => {
-      const socket = getTutorSessionSocket();
-      console.log('🧪 Socket status:', {
-        exists: !!socket,
-        connected: socket?.connected,
-        id: socket?.id,
-        rooms: (socket as any)?.rooms
-      });
-      return socket;
-    };
-
-    return () => {
-      delete (window as any).FORCE_TUTOR_ACCEPTED;
-      delete (window as any).CHECK_SOCKET;
-    };
-  }, []);
-
-  // Load session from URL or reset for new chat
+  // Load session from URL
   useEffect(() => {
     const sessionId = searchParams.get('session');
-    
-    // Initial load or session changed
     if (sessionId && sessionId !== currentSessionId) {
       loadSession(sessionId);
     } else if (!sessionId && (currentSessionId || !initialLoadDone)) {
-      // New chat - reset state
       setCurrentSessionId(null);
       setMessages([]);
       setStreamingMessage(null);
       setShowTutorPanel(false);
+      setCurrentMode('SINGLE');
     }
-    
-    if (!initialLoadDone) {
-      setInitialLoadDone(true);
-    }
+    if (!initialLoadDone) setInitialLoadDone(true);
   }, [searchParams, initialLoadDone]);
 
   const loadSession = async (sessionId: string) => {
@@ -696,9 +695,9 @@ export function StudentDashboard() {
       setIsLoadingSession(true);
       const response = await geminiChatApi.getSession(sessionId);
       setCurrentSessionId(sessionId);
-      setMessages(response.data.messages);
-    } catch (error) {
-      console.error('Failed to load session:', error);
+      setMessages(response.messages);
+      setCurrentMode(response.session.mode || 'SINGLE');
+    } catch {
       toast.error('Failed to load chat session');
       setSearchParams({});
     } finally {
@@ -706,55 +705,57 @@ export function StudentDashboard() {
     }
   };
 
+  // Handle mode change
+  const handleModeChange = async (mode: AIChatMode) => {
+    setCurrentMode(mode);
+    if (currentSessionId) {
+      try {
+        await geminiChatApi.updateSession(currentSessionId, { mode });
+        toast.success(`Switched to ${mode === 'COUNCIL' ? 'AI Council' : 'Single AI'} mode`);
+      } catch {
+        toast.error('Failed to update mode');
+      }
+    }
+  };
+
   // Handle text submission
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    
-    if ((!input.trim() && attachments.length === 0) || isSubmitting || isStreaming) {
-      return;
-    }
+    if ((!input.trim() && attachments.length === 0) || isSubmitting || isStreaming) return;
 
     const messageContent = input.trim();
     const files = [...attachments];
-    
-    // Clear input immediately
     setInput('');
     setAttachments([]);
     setIsSubmitting(true);
 
-    // Add user message to UI immediately
     const tempUserMessage: AIMessage = {
       id: 'temp-' + Date.now(),
       sessionId: currentSessionId || '',
       role: 'USER',
       content: messageContent,
-      attachments: files.length > 0 ? files.map((f, i) => ({
-        id: 'temp-att-' + i,
-        url: URL.createObjectURL(f),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      })) : null,
-      audioUrl: null,
-      transcription: null,
-      isStreaming: false,
-      isComplete: true,
-      hasError: false,
-      errorMessage: null,
-      feedback: null,
-      createdAt: new Date().toISOString(),
+      attachments: files.length > 0
+        ? files.map((f) => ({ url: URL.createObjectURL(f), name: f.name, type: f.type, size: f.size }))
+        : null,
+      audioUrl: null, transcription: null,
+      isStreaming: false, isComplete: true, hasError: false, errorMessage: null,
+      feedback: null, councilResponses: null, createdAt: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUserMessage]);
 
-    // After adding the user message, scroll so that it sits at the top
-    // of the scrollable area, and keep that position while the answer streams.
+    // Show an immediate AI placeholder so there's no dead gap
+    setStreamingMessage({
+      id: 'waiting-' + Date.now(),
+      sessionId: currentSessionId || '',
+      role: 'ASSISTANT',
+      content: '',
+      attachments: null, audioUrl: null, transcription: null,
+      isStreaming: true, isComplete: false, hasError: false, errorMessage: null,
+      feedback: null, councilResponses: null, createdAt: new Date().toISOString(),
+    });
+
     setTimeout(() => {
-      if (lastUserMessageRef.current) {
-        lastUserMessageRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
-      }
+      lastUserMessageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
 
     try {
@@ -763,9 +764,9 @@ export function StudentDashboard() {
       } else {
         await sendMessage(messageContent, currentSessionId || undefined);
       }
-    } catch (error) {
-      console.error('Failed to send message:', error);
+    } catch {
       toast.error('Failed to send message');
+      setStreamingMessage(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -774,93 +775,67 @@ export function StudentDashboard() {
   // Handle audio submission
   const handleAudioSubmit = async () => {
     const audioFile = getAudioFile();
-    if (!audioFile) {
-      toast.error('No audio to send');
-      return;
-    }
+    if (!audioFile) { toast.error('No audio to send'); return; }
 
     setIsSubmitting(true);
     resetRecording();
     setIsAudioMode(false);
 
-    // Add placeholder user message
     const tempUserMessage: AIMessage = {
       id: 'temp-audio-' + Date.now(),
       sessionId: currentSessionId || '',
-      role: 'USER',
-      content: '',
-      attachments: null,
-      audioUrl: URL.createObjectURL(audioFile),
-      transcription: null,
-      isStreaming: false,
-      isComplete: true,
-      hasError: false,
-      errorMessage: null,
-      feedback: null,
-      createdAt: new Date().toISOString(),
+      role: 'USER', content: '',
+      attachments: null, audioUrl: URL.createObjectURL(audioFile), transcription: null,
+      isStreaming: false, isComplete: true, hasError: false, errorMessage: null,
+      feedback: null, councilResponses: null, createdAt: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUserMessage]);
 
-    // Align the latest audio question to the top as well
+    // Show an immediate AI placeholder so there's no dead gap
+    setStreamingMessage({
+      id: 'waiting-audio-' + Date.now(),
+      sessionId: currentSessionId || '',
+      role: 'ASSISTANT',
+      content: '',
+      attachments: null, audioUrl: null, transcription: null,
+      isStreaming: true, isComplete: false, hasError: false, errorMessage: null,
+      feedback: null, councilResponses: null, createdAt: new Date().toISOString(),
+    });
+
     setTimeout(() => {
-      if (lastUserMessageRef.current) {
-        lastUserMessageRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
-      }
+      lastUserMessageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
 
     try {
       await sendAudioMessage(audioFile, currentSessionId || undefined);
-    } catch (error) {
-      console.error('Failed to send audio:', error);
+    } catch {
       toast.error('Failed to send audio message');
+      setStreamingMessage(null);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Handle suggestion click
-  const handleSuggestionClick = (prompt: string) => {
-    setInput(prompt);
-  };
+  const handleSuggestionClick = (prompt: string) => setInput(prompt);
 
-  // Handle file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     const validFiles = files.filter((f) => {
       const isImage = f.type.startsWith('image/');
       const isPdf = f.type === 'application/pdf';
-      const isValidSize = f.size <= 20 * 1024 * 1024; // 20MB
-      return (isImage || isPdf) && isValidSize;
+      return (isImage || isPdf) && f.size <= 20 * 1024 * 1024;
     });
-    
-    if (validFiles.length !== files.length) {
-      toast.error('Some files were skipped (only images and PDFs under 20MB)');
-    }
-    
+    if (validFiles.length !== files.length) toast.error('Some files were skipped (only images and PDFs under 20MB)');
     setAttachments((prev) => [...prev, ...validFiles].slice(0, 5));
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Remove attachment
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
+  const removeAttachment = (index: number) => setAttachments((prev) => prev.filter((_, i) => i !== index));
 
-  // Handle retry
   const handleRetry = async (messageId: string) => {
     const existing = messages.find((m) => m.id === messageId);
-    if (existing?.content) {
-      prepareForRetry(existing.content);
-    }
-    // Optimistically clear the error; the next stream 'start' will also clear it
-    setMessages((prev) =>
-      prev.map((m) => (m.id === messageId ? { ...m, hasError: false, errorMessage: null } : m))
-    );
+    if (existing?.content) prepareForRetry(existing.content);
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, hasError: false, errorMessage: null } : m)));
     await retryMessage(messageId);
   };
 
@@ -870,78 +845,42 @@ export function StudentDashboard() {
     await retryMessage(streamingMessage.id);
   };
 
-  // Handle feedback
   const handleFeedback = async (messageId: string, feedback: 'GOOD' | 'BAD') => {
     const success = await addFeedback(messageId, feedback);
-    if (success) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, feedback } : m))
-      );
-    }
+    if (success) setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback } : m)));
   };
 
-  // Handle tutor button click - open tutor session panel
   const handleOpenTutorPanel = () => {
-    if (!currentSessionId) {
-      toast.error('Please start a conversation first');
-      return;
-    }
+    if (!currentSessionId) { toast.error('Please start a conversation first'); return; }
     setShowTutorPanel(true);
   };
 
-  // Close tutor panel
-  const handleCloseTutorPanel = () => {
-    setShowTutorPanel(false);
-  };
-
-  // Handle toggle live sharing
   const handleToggleLiveSharing = useCallback(async (enabled: boolean) => {
     if (!activeTutorSession?.tutorSessionId) return;
-    
     try {
       await tutorSessionApi.updateConsent(activeTutorSession.tutorSessionId, enabled);
       setLiveSharingEnabled(enabled);
       toast.success(enabled ? 'AI chat sharing enabled' : 'AI chat sharing disabled');
-    } catch (error) {
-      console.error('Failed to update consent:', error);
+    } catch {
       toast.error('Failed to update sharing settings');
     }
   }, [activeTutorSession?.tutorSessionId]);
 
-  // End tutor session
   const handleEndTutorSession = useCallback(() => {
     setActiveTutorSession(null);
     setLiveSharingEnabled(false);
   }, []);
 
   // Audio controls
-  const handleAudioClick = () => {
-    if (!isAudioMode) {
-      setIsAudioMode(true);
-      startRecording();
-    }
-  };
-
-  const handleStopRecording = () => {
-    stopRecording();
-  };
-
-  const handleCancelAudio = () => {
-    resetRecording();
-    setIsAudioMode(false);
-  };
-
+  const handleAudioClick = () => { if (!isAudioMode) { setIsAudioMode(true); startRecording(); } };
+  const handleStopRecording = () => stopRecording();
+  const handleCancelAudio = () => { resetRecording(); setIsAudioMode(false); };
   const togglePlayback = () => {
     if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
+    if (isPlaying) audioRef.current.pause(); else audioRef.current.play();
     setIsPlaying(!isPlaying);
   };
 
-  // Get greeting based on time
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -953,23 +892,22 @@ export function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
-      {/* Header with Tutor Status - Sticky */}
+      {/* Header */}
       <div className="sticky top-0 z-10 bg-[#0f0f0f]">
-        {/* Header - minimal */}
-        <header className="flex items-center justify-center px-4 py-3 border-b border-gray-800/50 bg-[#0f0f0f]/80 backdrop-blur-sm">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800/50 bg-[#0f0f0f]/80 backdrop-blur-sm">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
               <Sparkles className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="font-medium text-white text-sm tracking-tight">AI Tutor</span>
           </div>
+          <ModeToggle mode={currentMode} onChange={handleModeChange} disabled={isStreaming} />
         </header>
 
-        {/* Active Tutor Session Banner */}
         {activeTutorSession && (
           <div className="px-4 py-2 border-b border-gray-800/50">
             <StudentActiveSession
-              key={activeTutorSession.tutorSessionId} // Force re-mount when session changes
+              key={activeTutorSession.tutorSessionId}
               tutorSessionId={activeTutorSession.tutorSessionId}
               tutorName={activeTutorSession.tutorName}
               dailyRoom={activeTutorSession.dailyRoom}
@@ -988,7 +926,6 @@ export function StudentDashboard() {
             <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
           </div>
         ) : !hasMessages ? (
-          // Empty state - centered greeting
           <div className="flex flex-col items-center justify-center min-h-[calc(100vh-180px)] px-4">
             <div className="text-center mb-8">
               <div className="flex items-center justify-center gap-3 mb-4">
@@ -1000,9 +937,20 @@ export function StudentDashboard() {
                 {getGreeting()}, {user?.name?.split(' ')[0] || 'there'}
               </h1>
               <p className="text-gray-400 text-lg">How can I help you learn today?</p>
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500">
+                {currentMode === 'COUNCIL' ? (
+                  <>
+                    <Users className="w-4 h-4 text-violet-400" />
+                    <span>AI Council mode - 3 experts will analyze your question</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 text-violet-400" />
+                    <span>Single AI mode - fast, direct responses</span>
+                  </>
+                )}
+              </div>
             </div>
-
-            {/* Suggestions */}
             <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
               {suggestionPrompts.map((prompt, i) => (
                 <button
@@ -1016,39 +964,36 @@ export function StudentDashboard() {
             </div>
           </div>
         ) : (
-          // Messages
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
             {messages.map((msg, index) => {
-              const isLastUserMessage =
-                msg.role === 'USER' && index === messages.length - 1;
-
+              const isLastUserMessage = msg.role === 'USER' && index === messages.length - 1;
               return (
-                <div
-                  key={msg.id}
-                  ref={isLastUserMessage ? lastUserMessageRef : undefined}
-                >
+                <div key={msg.id} ref={isLastUserMessage ? lastUserMessageRef : undefined}>
                   <MessageBubble
                     message={msg}
+                    isCouncilMode={currentMode === 'COUNCIL'}
                     onRetry={() => handleRetry(msg.id)}
                     onFeedback={(feedback) => handleFeedback(msg.id, feedback)}
                   />
                 </div>
               );
             })}
-            
-            {/* Streaming message */}
-            {streamingMessage && !messages.some(m => m.id === streamingMessage.id) && (
+            {streamingMessage && !messages.some((m) => m.id === streamingMessage.id) && (
               <MessageBubble
                 key={`streaming-${streamingMessage.id}`}
                 message={streamingMessage}
-                isStreaming={true}
+                isStreaming={isStreaming || isWaitingForStream}
                 streamingContent={streamingContent}
                 streamStatusText={streamUx.statusText}
                 showRetryWhileStreaming={streamUx.shouldOfferRetry}
+                councilAnalyzing={councilAnalyzing}
+                councilExperts={councilExperts}
+                councilMembers={councilMembers}
+                isSynthesizing={isSynthesizing}
+                isCouncilMode={currentMode === 'COUNCIL'}
                 onRetry={handleRetryStreaming}
               />
             )}
-            
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -1057,27 +1002,19 @@ export function StudentDashboard() {
       {/* Input Area */}
       <div className="sticky bottom-0 bg-gradient-to-t from-[#0f0f0f] via-[#0f0f0f] to-transparent pt-6 pb-4 px-4">
         <div className="max-w-3xl mx-auto">
-          {/* Attachments Preview */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
               {attachments.map((file, i) => (
                 <div key={i} className="relative group">
                   {file.type.startsWith('image/') ? (
-                    <img
-                      src={URL.createObjectURL(file)}
-                      alt={file.name}
-                      className="w-16 h-16 object-cover rounded-lg border border-gray-700"
-                    />
+                    <img src={URL.createObjectURL(file)} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-gray-700" />
                   ) : (
                     <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg">
                       <FileText className="w-4 h-4 text-violet-400" />
                       <span className="text-xs text-gray-300 truncate max-w-[100px]">{file.name}</span>
                     </div>
                   )}
-                  <button
-                    onClick={() => removeAttachment(i)}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
+                  <button onClick={() => removeAttachment(i)} className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -1085,7 +1022,6 @@ export function StudentDashboard() {
             </div>
           )}
 
-          {/* Recording UI */}
           {isRecording && (
             <div className="bg-[#1a1a1a] rounded-2xl p-4 mb-3 border border-gray-800">
               <div className="flex items-center justify-center gap-3 mb-3">
@@ -1093,58 +1029,33 @@ export function StudentDashboard() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                 </span>
-                <span className="text-sm font-medium text-white">
-                  {isPaused ? 'Paused' : 'Recording...'}
-                </span>
+                <span className="text-sm font-medium text-white">{isPaused ? 'Paused' : 'Recording...'}</span>
                 <span className="text-lg font-mono text-gray-300">{formatDuration(duration)}</span>
               </div>
-
-              {/* Waveform */}
               <div className="flex items-center justify-center gap-0.5 h-8 mb-4">
                 {[...Array(32)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-1 rounded-full bg-gradient-to-t from-violet-500 to-fuchsia-500 transition-all duration-100"
-                    style={{
-                      height: isPaused ? '4px' : `${Math.random() * 28 + 4}px`,
-                    }}
-                  />
+                  <div key={i} className="w-1 rounded-full bg-gradient-to-t from-violet-500 to-fuchsia-500 transition-all duration-100" style={{ height: isPaused ? '4px' : `${Math.random() * 28 + 4}px` }} />
                 ))}
               </div>
-
               <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={isPaused ? resumeRecording : pauseRecording}
-                  className="p-2.5 bg-gray-700 text-white rounded-full hover:bg-gray-600 transition-colors"
-                >
+                <button onClick={isPaused ? resumeRecording : pauseRecording} className="p-2.5 bg-gray-700 text-white rounded-full hover:bg-gray-600 transition-colors">
                   {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                 </button>
-                <button
-                  onClick={handleStopRecording}
-                  className="p-3 bg-red-500 text-white rounded-full hover:bg-red-400 transition-colors"
-                >
+                <button onClick={handleStopRecording} className="p-3 bg-red-500 text-white rounded-full hover:bg-red-400 transition-colors">
                   <StopCircle className="w-5 h-5" />
                 </button>
-                <button
-                  onClick={handleCancelAudio}
-                  className="p-2.5 bg-gray-700 text-white rounded-full hover:bg-gray-600 transition-colors"
-                >
+                <button onClick={handleCancelAudio} className="p-2.5 bg-gray-700 text-white rounded-full hover:bg-gray-600 transition-colors">
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
           )}
 
-          {/* Audio Preview */}
           {audioUrl && !isRecording && (
             <div className="bg-[#1a1a1a] rounded-2xl p-4 mb-3 border border-gray-800">
               <audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} />
-              
               <div className="flex items-center justify-center gap-4 mb-4">
-                <button
-                  onClick={togglePlayback}
-                  className="p-3 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white rounded-full hover:opacity-90 transition-opacity"
-                >
+                <button onClick={togglePlayback} className="p-3 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white rounded-full hover:opacity-90 transition-opacity">
                   {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                 </button>
                 <div className="text-left">
@@ -1152,32 +1063,14 @@ export function StudentDashboard() {
                   <p className="text-xs text-gray-400">{formatDuration(duration)}</p>
                 </div>
               </div>
-
               <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={handleCancelAudio}
-                  disabled={isSubmitting}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
+                <button onClick={handleCancelAudio} disabled={isSubmitting} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-50">
+                  <Trash2 className="w-4 h-4" /> Delete
                 </button>
-                <button
-                  onClick={() => {
-                    resetRecording();
-                    startRecording();
-                  }}
-                  disabled={isSubmitting}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-50"
-                >
-                  <Mic className="w-4 h-4" />
-                  Re-record
+                <button onClick={() => { resetRecording(); startRecording(); }} disabled={isSubmitting} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-50">
+                  <Mic className="w-4 h-4" /> Re-record
                 </button>
-                <button
-                  onClick={handleAudioSubmit}
-                  disabled={isSubmitting}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-medium rounded-xl transition-all hover:opacity-90 disabled:opacity-50"
-                >
+                <button onClick={handleAudioSubmit} disabled={isSubmitting} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-medium rounded-xl transition-all hover:opacity-90 disabled:opacity-50">
                   {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   Send
                 </button>
@@ -1185,19 +1078,13 @@ export function StudentDashboard() {
             </div>
           )}
 
-          {/* Text Input */}
           {!isRecording && !audioUrl && (
             <form onSubmit={handleSubmit}>
               <div className="relative bg-[#1a1a1a] rounded-2xl border border-gray-800 focus-within:border-violet-500/50 transition-all shadow-xl">
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
                   placeholder="Ask me anything about Math, Science, or any subject..."
                   rows={1}
                   disabled={isSubmitting || isStreaming}
@@ -1209,68 +1096,31 @@ export function StudentDashboard() {
                     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
                   }}
                 />
-                
-                {/* Input Actions */}
                 <div className="absolute right-2 bottom-2 flex items-center gap-1">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,.pdf"
-                    multiple
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isSubmitting || isStreaming}
-                    className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-50"
-                    title="Attach files"
-                  >
+                  <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple onChange={handleFileSelect} className="hidden" />
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isSubmitting || isStreaming} className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-50" title="Attach files">
                     <Paperclip className="w-5 h-5" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleAudioClick}
-                    disabled={isSubmitting || isStreaming}
-                    className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-50"
-                    title="Record voice"
-                  >
+                  <button type="button" onClick={handleAudioClick} disabled={isSubmitting || isStreaming} className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-50" title="Record voice">
                     <Mic className="w-5 h-5" />
                   </button>
-                  {/* Talk to Tutor Button - Hidden when already in session */}
                   {!activeTutorSession && (
-                    <button
-                      type="button"
-                      onClick={handleOpenTutorPanel}
-                      disabled={isSubmitting || isStreaming || !currentSessionId}
-                      className="p-2 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors disabled:opacity-50"
-                      title="Talk to a human tutor"
-                    >
+                    <button type="button" onClick={handleOpenTutorPanel} disabled={isSubmitting || isStreaming || !currentSessionId} className="p-2 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors disabled:opacity-50" title="Talk to a human tutor">
                       <UserPlus className="w-5 h-5" />
                     </button>
                   )}
                   <button
                     type="submit"
                     disabled={isSubmitting || isStreaming || (!input.trim() && attachments.length === 0)}
-                    className={`p-2 rounded-xl transition-all ${
-                      input.trim() || attachments.length > 0
-                        ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90'
-                        : 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                    }`}
+                    className={`p-2 rounded-xl transition-all ${input.trim() || attachments.length > 0 ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90' : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}
                   >
-                    {isSubmitting || isStreaming ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Send className="w-5 h-5" />
-                    )}
+                    {isSubmitting || isStreaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                   </button>
                 </div>
               </div>
             </form>
           )}
 
-          {/* Footer hint */}
           <p className="text-center text-xs text-gray-600 mt-3">
             AI can make mistakes. For important topics, verify with your tutor.
           </p>
@@ -1281,55 +1131,15 @@ export function StudentDashboard() {
       {showTutorPanel && currentSessionId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md animate-fadeIn">
-            {/* DEBUG INDICATOR */}
-            <div className="mb-2 text-xs text-green-400 bg-green-900/20 px-2 py-1 rounded text-center">
-              🔧 DEBUG: Gemini Listener Active | Session: {currentSessionId}
-              <div className="flex gap-1 mt-1 justify-center">
-                <button
-                  onClick={() => (window as any).FORCE_TUTOR_ACCEPTED()}
-                  className="px-2 py-1 bg-red-600 text-white text-xs rounded"
-                >
-                  FORCE TEST
-                </button>
-                <button
-                  onClick={async () => {
-                    console.log('🧪 Testing backend event emission...');
-                    try {
-                      const response = await fetch(`http://localhost:3000/api/v1/tutor-session/test-notification/${currentSessionId}`, {
-                        method: 'POST',
-                        headers: {
-                          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-                          'Content-Type': 'application/json'
-                        }
-                      });
-                      const result = await response.json();
-                      console.log('🧪 Test notification response:', response.status, result);
-
-                      if (response.ok) {
-                        console.log('✅ Backend test successful - waiting for event...');
-                      } else {
-                        console.log('❌ Backend test failed:', result);
-                      }
-                    } catch (error) {
-                      console.error('❌ Test notification failed:', error);
-                    }
-                  }}
-                  className="px-2 py-1 bg-blue-600 text-white text-xs rounded"
-                >
-                  TEST BACKEND
-                </button>
-              </div>
-            </div>
             <TutorSessionPanel
               aiSessionId={currentSessionId}
               activeTutorSession={activeTutorSession}
-              onClose={handleCloseTutorPanel}
+              onClose={() => setShowTutorPanel(false)}
             />
           </div>
         </div>
       )}
 
-      {/* Custom animations */}
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }

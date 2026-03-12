@@ -1,11 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  MessageSquare, 
-  HelpCircle, 
-  Users, 
+import {
+  LayoutDashboard,
+  MessageSquare,
+  HelpCircle,
+  Users,
   Settings,
-  X
+  X,
+  GraduationCap,
+  Layers,
+  Package,
+  Building2
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Role } from '../../types';
@@ -20,9 +24,11 @@ interface NavItem {
   path: string;
   icon: React.ReactNode;
   roles: Role[];
+  schoolOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
+  // Student
   {
     label: 'Dashboard',
     path: '/dashboard/student',
@@ -30,16 +36,11 @@ const navItems: NavItem[] = [
     roles: [Role.STUDENT],
   },
   {
-    label: 'Dashboard',
-    path: '/dashboard/tutor',
-    icon: <LayoutDashboard className="w-5 h-5" />,
-    roles: [Role.TUTOR],
-  },
-  {
-    label: 'Dashboard',
-    path: '/admin',
-    icon: <LayoutDashboard className="w-5 h-5" />,
-    roles: [Role.ADMIN],
+    label: 'Packages',
+    path: '/student/packages',
+    icon: <Package className="w-5 h-5" />,
+    roles: [Role.STUDENT],
+    schoolOnly: true,
   },
   {
     label: 'Ask a Question',
@@ -53,12 +54,55 @@ const navItems: NavItem[] = [
     icon: <MessageSquare className="w-5 h-5" />,
     roles: [Role.STUDENT, Role.TUTOR],
   },
+  // Teacher
+  {
+    label: 'Dashboard',
+    path: '/dashboard/teacher',
+    icon: <LayoutDashboard className="w-5 h-5" />,
+    roles: [Role.TEACHER],
+  },
+  // Tutor
+  {
+    label: 'Dashboard',
+    path: '/dashboard/tutor',
+    icon: <LayoutDashboard className="w-5 h-5" />,
+    roles: [Role.TUTOR],
+  },
+  // Admin + Administrator shared
+  {
+    label: 'Dashboard',
+    path: '/admin',
+    icon: <LayoutDashboard className="w-5 h-5" />,
+    roles: [Role.ADMIN, Role.ADMINISTRATOR],
+  },
+  // Admin only
+  {
+    label: 'Schools',
+    path: '/admin/schools',
+    icon: <Building2 className="w-5 h-5" />,
+    roles: [Role.ADMIN],
+  },
   {
     label: 'Users',
     path: '/admin/users',
     icon: <Users className="w-5 h-5" />,
-    roles: [Role.ADMIN],
+    roles: [Role.ADMIN, Role.ADMINISTRATOR],
   },
+  // Admin + Administrator
+  {
+    label: 'Teachers',
+    path: '/admin/teachers',
+    icon: <GraduationCap className="w-5 h-5" />,
+    roles: [Role.ADMIN, Role.ADMINISTRATOR],
+  },
+  // Administrator only - subjects/sections
+  {
+    label: 'Subjects',
+    path: '/admin/sections',
+    icon: <Layers className="w-5 h-5" />,
+    roles: [Role.ADMINISTRATOR],
+  },
+  // Admin only - conversations
   {
     label: 'Conversations',
     path: '/admin/conversations',
@@ -70,15 +114,17 @@ const navItems: NavItem[] = [
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { user } = useAuth();
 
-  const filteredNavItems = navItems.filter(item => 
-    user && item.roles.includes(user.role)
-  );
+  const filteredNavItems = navItems.filter(item => {
+    if (!user || !item.roles.includes(user.role)) return false;
+    if (item.schoolOnly && !user.schoolId && !user.students?.schoolId && !user.studentProfile?.schoolId) return false;
+    return true;
+  });
 
   return (
     <>
       {/* Overlay for mobile */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={onClose}
         />
