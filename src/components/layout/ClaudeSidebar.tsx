@@ -19,7 +19,9 @@ import {
   Search,
   GraduationCap,
   Layers,
-  Package
+  Package,
+  FolderOpen,
+  Upload,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Role, AIChatSession } from '../../types';
@@ -91,6 +93,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
     if (user.role === Role.STUDENT && (user.schoolId || user.students?.schoolId || user.studentProfile?.schoolId)) {
       items.push(
         { label: 'Packages', path: '/student/packages', icon: Package },
+        { label: 'Projects', path: '/projects', icon: FolderOpen },
       );
     }
 
@@ -122,6 +125,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
         { label: 'Users', path: '/admin/users', icon: Users },
         { label: 'Teachers', path: '/admin/teachers', icon: GraduationCap },
         { label: 'Subjects', path: '/admin/sections', icon: Layers },
+        { label: 'Daily Packages', path: '/admin/daily-packages', icon: Upload },
       );
     }
 

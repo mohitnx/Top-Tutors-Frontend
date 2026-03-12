@@ -7,6 +7,8 @@ export { default as AcceptInvitation } from './AcceptInvitation';
 // Student Pages
 export { default as StudentDashboard } from './student/StudentDashboard';
 export { default as StudentPackages } from './student/StudentPackages';
+export { default as ProjectsList } from './student/ProjectsList';
+export { default as ProjectDetail } from './student/ProjectDetail';
 
 // Teacher Pages
 export { default as TeacherDashboard } from './teacher/TeacherDashboard';
@@ -21,6 +23,7 @@ export { default as AdminUsers } from './admin/AdminUsers';
 export { default as AdminConversations } from './admin/AdminConversations';
 export { default as AdminTeachers } from './admin/AdminTeachers';
 export { default as AdminSections } from './admin/AdminSections';
+export { default as AdminDailyPackages } from './admin/AdminDailyPackages';
 
 // Shared Pages
 export { default as Conversations } from './Conversations';

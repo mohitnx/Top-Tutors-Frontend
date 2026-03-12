@@ -3,6 +3,7 @@ import { User, Role } from '../types';
 import { authApi } from '../api';
 import { connectSocket, disconnectSocket } from '../services/socket';
 import { connectGeminiSocket, disconnectGeminiSocket } from '../services/geminiSocket';
+import { disconnectProjectSocket } from '../services/projectSocket';
 import toast from 'react-hot-toast';
 
 interface AuthContextType {
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const clearAuth = () => {
       disconnectSocket();
       disconnectGeminiSocket();
+      disconnectProjectSocket();
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
@@ -104,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       disconnectSocket();
       disconnectGeminiSocket();
+      disconnectProjectSocket();
     };
   }, []);
 
@@ -170,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     disconnectSocket();
     disconnectGeminiSocket();
+    disconnectProjectSocket();
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');

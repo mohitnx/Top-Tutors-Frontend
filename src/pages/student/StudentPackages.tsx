@@ -114,10 +114,10 @@ export function StudentPackages() {
   };
 
   const renderPackageCard = (pkg: StudentDailyPackage) => (
-    <div key={pkg.id} className="bg-white border border-gray-200 rounded-lg p-5">
+    <div key={pkg.id} className="bg-[#25262b] border border-gray-700/50 rounded-lg p-5">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">{pkg.class_sections.name}</h3>
+          <h3 className="text-sm font-semibold text-gray-200">{pkg.class_sections.name}</h3>
           <p className="text-xs text-gray-500">{pkg.subject.replace(/_/g, ' ')} {pkg.class_sections.grade && `· Grade ${pkg.class_sections.grade}`}</p>
           <p className="text-xs text-gray-400 mt-0.5">by {pkg.teachers.users.name || 'Teacher'}</p>
         </div>
@@ -139,7 +139,7 @@ export function StudentPackages() {
           {pkg.pdfUrl && (
             <button
               onClick={() => handleDownloadPdf(pkg)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary-700 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary-400 bg-primary-500/10 rounded-lg hover:bg-primary-500/20 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               Download PDF
@@ -148,7 +148,7 @@ export function StudentPackages() {
           {pkg.audioUrl && (
             <button
               onClick={() => setPlayingAudioId(playingAudioId === pkg.id ? null : pkg.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-700 bg-violet-50 rounded-lg hover:bg-violet-100 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-400 bg-violet-500/10 rounded-lg hover:bg-violet-500/20 transition-colors"
             >
               <Headphones className="w-3.5 h-3.5" />
               {playingAudioId === pkg.id ? 'Hide Audio' : 'Listen'}
@@ -157,7 +157,7 @@ export function StudentPackages() {
           {pkg.quizJson && pkg.quizJson.length > 0 && (
             <button
               onClick={() => openQuiz(pkg)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 rounded-lg hover:bg-amber-500/20 transition-colors"
             >
               <ClipboardList className="w-3.5 h-3.5" />
               Self-Assessment ({pkg.quizJson.length}Q)
@@ -166,7 +166,7 @@ export function StudentPackages() {
           {pkg.summaryText && (
             <button
               onClick={() => setSummaryPackage(pkg)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20 transition-colors"
             >
               <FileText className="w-3.5 h-3.5" />
               Summary
@@ -177,7 +177,7 @@ export function StudentPackages() {
 
       {/* Inline audio player */}
       {playingAudioId === pkg.id && pkg.audioUrl && (
-        <div className="mt-3 pt-3 border-t border-gray-100">
+        <div className="mt-3 pt-3 border-t border-gray-700/50">
           <audio controls className="w-full h-8" src={pkg.audioUrl} />
         </div>
       )}
@@ -187,22 +187,22 @@ export function StudentPackages() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Learning Packages</h1>
-        <p className="text-gray-600">Your daily question papers, study materials, and quizzes</p>
+        <h1 className="text-2xl font-bold text-gray-100">Learning Packages</h1>
+        <p className="text-gray-400">Your daily question papers, study materials, and quizzes</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
+      <div className="flex gap-1 bg-[#2c2d32] rounded-lg p-1 mb-6 w-fit">
         <button
           onClick={() => setActiveTab('daily')}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'daily' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'daily' ? 'bg-[#25262b] text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
         >
           <Calendar className="w-4 h-4 inline mr-1.5" />
           Daily
         </button>
         <button
           onClick={() => setActiveTab('weekly')}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'weekly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'weekly' ? 'bg-[#25262b] text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
         >
           <FileText className="w-4 h-4 inline mr-1.5" />
           Weekly
@@ -214,8 +214,8 @@ export function StudentPackages() {
         <>
           {/* Date navigation */}
           <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => navigateDay('prev')} className="p-1.5 hover:bg-gray-100 rounded-lg">
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            <button onClick={() => navigateDay('prev')} className="p-1.5 hover:bg-[#2c2d32] rounded-lg">
+              <ChevronLeft className="w-5 h-5 text-gray-400" />
             </button>
             <input
               type="date"
@@ -223,8 +223,8 @@ export function StudentPackages() {
               onChange={(e) => setSelectedDate(e.target.value)}
               className="input w-auto text-sm"
             />
-            <button onClick={() => navigateDay('next')} className="p-1.5 hover:bg-gray-100 rounded-lg">
-              <ChevronRight className="w-5 h-5 text-gray-600" />
+            <button onClick={() => navigateDay('next')} className="p-1.5 hover:bg-[#2c2d32] rounded-lg">
+              <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
             <button
               onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
@@ -255,16 +255,16 @@ export function StudentPackages() {
         <>
           {/* Week navigation */}
           <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => navigateWeek('prev')} className="p-1.5 hover:bg-gray-100 rounded-lg">
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            <button onClick={() => navigateWeek('prev')} className="p-1.5 hover:bg-[#2c2d32] rounded-lg">
+              <ChevronLeft className="w-5 h-5 text-gray-400" />
             </button>
             {weekRange && (
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-gray-300">
                 {new Date(weekRange.start).toLocaleDateString()} – {new Date(weekRange.end).toLocaleDateString()}
               </span>
             )}
-            <button onClick={() => navigateWeek('next')} className="p-1.5 hover:bg-gray-100 rounded-lg">
-              <ChevronRight className="w-5 h-5 text-gray-600" />
+            <button onClick={() => navigateWeek('next')} className="p-1.5 hover:bg-[#2c2d32] rounded-lg">
+              <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
           </div>
 
@@ -306,9 +306,9 @@ export function StudentPackages() {
           title={`Summary - ${summaryPackage.class_sections.name} (${summaryPackage.subject.replace(/_/g, ' ')})`}
         >
           <div className="prose prose-sm max-w-none">
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{summaryPackage.summaryText}</p>
+            <p className="text-sm text-gray-300 whitespace-pre-wrap">{summaryPackage.summaryText}</p>
           </div>
-          <div className="flex justify-end mt-4 pt-3 border-t">
+          <div className="flex justify-end mt-4 pt-3 border-t border-gray-700/50">
             <Button variant="secondary" onClick={() => setSummaryPackage(null)}>Close</Button>
           </div>
         </Modal>
@@ -337,7 +337,7 @@ function QuizModal({
     <Modal isOpen={isOpen} onClose={onClose} title={`Self-Assessment - ${sectionName} (${subject.replace(/_/g, ' ')})`}>
       <div className="space-y-6 max-h-[60vh] overflow-y-auto">
         {showResults && (
-          <div className={`p-4 rounded-lg text-center ${correctCount >= questions.length * 0.7 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+          <div className={`p-4 rounded-lg text-center ${correctCount >= questions.length * 0.7 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
             <p className="text-lg font-semibold">{correctCount}/{questions.length} correct</p>
             <p className="text-sm">{correctCount >= questions.length * 0.7 ? 'Great job!' : 'Keep practicing!'}</p>
           </div>
@@ -345,19 +345,19 @@ function QuizModal({
 
         {questions.map((q, qIndex) => (
           <div key={q.id || qIndex} className="space-y-2">
-            <p className="text-sm font-medium text-gray-900">
+            <p className="text-sm font-medium text-gray-200">
               {qIndex + 1}. {q.question}
             </p>
             <div className="space-y-1.5">
               {q.options.map((option, oIndex) => {
                 const isSelected = answers[qIndex] === oIndex;
                 const isCorrect = q.correctAnswer === oIndex;
-                let optionClass = 'border-gray-200 hover:border-primary-300';
+                let optionClass = 'border-gray-600 hover:border-primary-500/50 text-gray-300';
                 if (showResults) {
-                  if (isCorrect) optionClass = 'border-emerald-500 bg-emerald-50';
-                  else if (isSelected && !isCorrect) optionClass = 'border-red-500 bg-red-50';
+                  if (isCorrect) optionClass = 'border-emerald-500 bg-emerald-500/10 text-gray-200';
+                  else if (isSelected && !isCorrect) optionClass = 'border-red-500 bg-red-500/10 text-gray-200';
                 } else if (isSelected) {
-                  optionClass = 'border-primary-500 bg-primary-50';
+                  optionClass = 'border-primary-500 bg-primary-500/10 text-gray-200';
                 }
 
                 return (
@@ -382,7 +382,7 @@ function QuizModal({
         ))}
       </div>
 
-      <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+      <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-700/50">
         <Button variant="secondary" onClick={onClose}>Close</Button>
         {!showResults && (
           <Button

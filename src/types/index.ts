@@ -1202,7 +1202,7 @@ export interface UpdateSectionData {
   grade?: string;
 }
 
-// Daily Package Upload (teacher view)
+// Daily Package Upload (teacher/administrator view)
 export interface DailyPackageUpload {
   id: string;
   sectionId: string;
@@ -1212,6 +1212,7 @@ export interface DailyPackageUpload {
   errorMsg: string | null;
   class_sections?: { id: string; name: string; grade: string | null };
   daily_packages?: DailyPackageItem[];
+  uploadedByUser?: { id: string; name: string | null; role: string };
   _count?: { upload_images: number; extracted_questions: number };
   createdAt: string;
   updatedAt: string;
@@ -1282,5 +1283,104 @@ export interface StudentWeeklyPackage {
   weekStart: string;
   weekEnd: string;
   packages: StudentDailyPackage[];
+}
+
+// ============================================
+// Student Projects Types
+// ============================================
+
+export interface ProjectResponse {
+  id: string;
+  title: string;
+  description: string | null;
+  aiSystemPrompt: string | null;
+  aiTemperature: number;
+  isArchived: boolean;
+  resourceCount?: number;
+  chatSessionCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectResourceResponse {
+  id: string;
+  projectId: string;
+  type: 'PDF' | 'IMAGE';
+  title: string;
+  url: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  hasExtractedContent: boolean;
+  createdAt: string;
+}
+
+export interface ProjectChatSessionResponse {
+  id: string;
+  projectId: string;
+  title: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  messageCount?: number;
+  lastMessage?: {
+    content: string | null;
+    role: 'USER' | 'ASSISTANT' | 'SYSTEM';
+    createdAt: string;
+  };
+}
+
+export interface ProjectMessageResponse {
+  id: string;
+  sessionId: string;
+  role: 'USER' | 'ASSISTANT' | 'SYSTEM';
+  content: string | null;
+  attachments: AIAttachment[] | null;
+  isStreaming: boolean;
+  isComplete: boolean;
+  hasError: boolean;
+  errorMessage: string | null;
+  feedback: 'GOOD' | 'BAD' | null;
+  createdAt: string;
+}
+
+export interface ProjectStreamChunk {
+  type: 'start' | 'chunk' | 'heartbeat' | 'end' | 'error';
+  messageId: string;
+  sessionId: string;
+  projectId: string;
+  content?: string;
+  fullContent?: string;
+  message?: string;
+  waitingMs?: number;
+  error?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+  };
+}
+
+export interface CreateProjectRequest {
+  title: string;
+  description?: string;
+  aiSystemPrompt?: string;
+  aiTemperature?: number;
+}
+
+export interface UpdateProjectRequest {
+  title?: string;
+  description?: string;
+  aiSystemPrompt?: string;
+  aiTemperature?: number;
+  isArchived?: boolean;
+}
+
+export interface SendProjectMessageRequest {
+  content?: string;
+  sessionId?: string;
+}
+
+export interface GenerateQuizRequest {
+  questionCount?: number;
+  quizType?: 'MCQ' | 'SHORT_ANSWER' | 'TRUE_FALSE' | 'MIXED';
+  difficulty?: 'EASY' | 'MEDIUM' | 'HARD';
 }
 

@@ -8,7 +8,7 @@ export interface UploadResponse {
 }
 
 export const dailyPackageApi = {
-  // Upload question images - TEACHER only
+  // Upload question images - TEACHER or ADMINISTRATOR
   uploadQuestions: async (sectionId: string, subject: string, images: File[]): Promise<UploadResponse> => {
     const formData = new FormData();
     formData.append('sectionId', sectionId);
@@ -24,7 +24,7 @@ export const dailyPackageApi = {
     return unwrapData<UploadResponse>(response.data);
   },
 
-  // List teacher's uploads - TEACHER only
+  // List uploads - TEACHER (own) or ADMINISTRATOR (school-wide)
   getMyUploads: async (page = 1, limit = 20): Promise<{ data: DailyPackageUpload[]; total: number; page: number; limit: number }> => {
     const response = await api.get('/daily-package/uploads', {
       params: { page, limit },

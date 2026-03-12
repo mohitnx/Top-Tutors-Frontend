@@ -10,6 +10,7 @@ export { messagesApi } from './messages';
 export { studentProfileApi, tutorProfileApi, profileApi } from './profiles';
 export { geminiChatApi } from './geminiChat';
 export { tutorSessionApi } from './tutorSession';
+export { projectsApi } from './projects';
 
 
 

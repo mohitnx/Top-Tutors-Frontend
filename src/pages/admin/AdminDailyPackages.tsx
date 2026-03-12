@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Image, Loader2, CheckCircle, XCircle, Clock, FileText, Calendar, Users, ChevronLeft, Layers, Eye, Award, Star, Hash } from 'lucide-react';
-import { teachersApi, dailyPackageApi } from '../../api';
-import { TeacherSection, DailyPackageUpload, DailyPackageStatus, DailyPackageUploadDetail, ExtractedQuestion } from '../../types';
+import { Upload, Image, Loader2, CheckCircle, XCircle, Clock, FileText, Calendar, Users, ChevronLeft, Layers, Eye, Award, Star, Hash, User } from 'lucide-react';
+import { sectionsApi, dailyPackageApi } from '../../api';
+import { ClassSection, Subject, DailyPackageUpload, DailyPackageStatus, DailyPackageUploadDetail, ExtractedQuestion } from '../../types';
 import { Spinner } from '../../components/ui/Loading';
 import Button from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -9,15 +9,21 @@ import toast from 'react-hot-toast';
 
 type View = 'main' | 'upload' | 'processing' | 'detail';
 
-export function TeacherDashboard() {
-  const [assignments, setAssignments] = useState<TeacherSection[]>([]);
+const SUBJECT_OPTIONS = Object.values(Subject).map(s => ({
+  value: s,
+  label: s.replace(/_/g, ' '),
+}));
+
+export function AdminDailyPackages() {
+  const [sections, setSections] = useState<ClassSection[]>([]);
   const [isLoadingSections, setIsLoadingSections] = useState(true);
 
   // Current view
   const [view, setView] = useState<View>('main');
 
   // Upload view
-  const [uploadTarget, setUploadTarget] = useState<TeacherSection | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState<string>(Subject.MATHEMATICS);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -50,8 +56,8 @@ export function TeacherDashboard() {
   const fetchSections = async () => {
     setIsLoadingSections(true);
     try {
-      const data = await teachersApi.getMySections();
-      setAssignments(data);
+      const data = await sectionsApi.getSections();
+      setSections(data);
     } catch {
       toast.error('Failed to load sections');
     } finally {
@@ -104,7 +110,10 @@ export function TeacherDashboard() {
   };
 
   const handleUpload = async () => {
-    if (!uploadTarget) return;
+    if (!selectedSectionId) {
+      toast.error('Please select a section');
+      return;
+    }
     if (selectedImages.length === 0) {
       toast.error('Please select at least one image');
       return;
@@ -113,8 +122,8 @@ export function TeacherDashboard() {
     setIsUploading(true);
     try {
       const result = await dailyPackageApi.uploadQuestions(
-        uploadTarget.sectionId,
-        uploadTarget.subject,
+        selectedSectionId,
+        selectedSubject,
         selectedImages,
       );
       toast.success('Upload started! Processing will begin shortly.');
@@ -181,7 +190,8 @@ export function TeacherDashboard() {
       pollingRef.current = null;
     }
     setView('main');
-    setUploadTarget(null);
+    setSelectedSectionId('');
+    setSelectedSubject(Subject.MATHEMATICS);
     setSelectedImages([]);
     setImagePreviews([]);
     setUploadDetail(null);
@@ -240,7 +250,7 @@ export function TeacherDashboard() {
                   <span className="w-2 h-2 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '150ms' }} />
                   <span className="w-2 h-2 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                Processing steps: OCR → Ranking → Answers → PDF → Audio
+                Processing steps: OCR &rarr; Ranking &rarr; Answers &rarr; PDF &rarr; Audio
               </div>
             )}
           </div>
@@ -391,10 +401,8 @@ export function TeacherDashboard() {
   }
 
   // --- Upload View ---
-  if (view === 'upload' && uploadTarget) {
-    const sectionName = uploadTarget.class_sections?.name || 'Section';
-    const sectionGrade = uploadTarget.class_sections?.grade;
-    const subjectLabel = uploadTarget.subject.replace(/_/g, ' ');
+  if (view === 'upload') {
+    const selectedSection = sections.find(s => s.id === selectedSectionId);
 
     return (
       <div className="p-6 max-w-3xl mx-auto">
@@ -404,13 +412,52 @@ export function TeacherDashboard() {
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-100">Upload Questions</h1>
-            <p className="text-gray-500 text-sm">
-              {sectionName} {sectionGrade && `· Grade ${sectionGrade}`} · {subjectLabel}
-            </p>
+            <p className="text-gray-500 text-sm">Upload question images for a section in your school</p>
           </div>
         </div>
 
         <div className="bg-[#25262b] border border-gray-700/50 rounded-lg p-6">
+          {/* Section & Subject Picker */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="label">Section</label>
+              <select
+                value={selectedSectionId}
+                onChange={(e) => setSelectedSectionId(e.target.value)}
+                className="input w-full"
+              >
+                <option value="">Select a section...</option>
+                {sections.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{s.grade ? ` (Grade ${s.grade})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Subject</label>
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="input w-full"
+              >
+                {SUBJECT_OPTIONS.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {selectedSection && (
+            <div className="mb-4 p-3 bg-[#2c2d32] rounded-lg border border-gray-700/30">
+              <p className="text-sm text-gray-300">
+                <span className="font-medium text-gray-200">{selectedSection.name}</span>
+                {selectedSection.grade && <span className="text-gray-500"> · Grade {selectedSection.grade}</span>}
+                <span className="text-gray-500"> · {selectedSection._count?.student_sections ?? 0} students</span>
+              </p>
+            </div>
+          )}
+
           {/* Image upload area */}
           <div className="mb-4">
             <label className="label">Question Images</label>
@@ -463,7 +510,7 @@ export function TeacherDashboard() {
             </Button>
             <Button
               onClick={handleUpload}
-              disabled={isUploading || selectedImages.length === 0}
+              disabled={isUploading || selectedImages.length === 0 || !selectedSectionId}
               isLoading={isUploading}
               leftIcon={<Upload className="w-4 h-4" />}
             >
@@ -478,39 +525,47 @@ export function TeacherDashboard() {
   // --- Main View ---
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-100">Teacher Dashboard</h1>
-        <p className="text-gray-400">Upload daily question papers for your assigned sections</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-100">Daily Packages</h1>
+          <p className="text-gray-400">Upload daily question papers for any section in your school</p>
+        </div>
+        <Button
+          leftIcon={<Upload className="w-4 h-4" />}
+          onClick={() => setView('upload')}
+        >
+          Upload Questions
+        </Button>
       </div>
 
-      {/* My Sections */}
+      {/* School Sections */}
       <div className="bg-[#25262b] border border-gray-700/50 rounded-lg mb-8">
         <div className="px-5 py-4 border-b border-gray-700/50">
           <h2 className="text-lg font-semibold text-gray-200 flex items-center gap-2">
             <Layers className="w-5 h-5 text-primary-600" />
-            My Sections
+            School Sections
           </h2>
         </div>
 
         {isLoadingSections ? (
           <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>
-        ) : assignments.length === 0 ? (
+        ) : sections.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <Layers className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-            <p className="font-medium">No sections assigned yet</p>
+            <p className="font-medium">No sections in your school yet</p>
             <p className="text-sm mt-1 max-w-sm mx-auto">
-              You can add content once an administrator creates a section and assigns you to it.
+              Create sections from the Subjects page first, then upload content here.
             </p>
           </div>
         ) : (
           <div className="divide-y divide-gray-700/50">
-            {assignments.map((assignment) => {
-              const section = assignment.class_sections;
-              const studentCount = section?._count?.student_sections ?? 0;
+            {sections.map((section) => {
+              const studentCount = section._count?.student_sections ?? 0;
+              const teacherCount = section._count?.teacher_sections ?? 0;
 
               return (
                 <div
-                  key={`${assignment.sectionId}-${assignment.subject}`}
+                  key={section.id}
                   className="flex items-center justify-between p-5 hover:bg-[#2c2d32]"
                 >
                   <div className="flex items-center gap-4">
@@ -519,17 +574,17 @@ export function TeacherDashboard() {
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-gray-200">
-                        {section?.name || 'Unknown Section'}
+                        {section.name}
                       </p>
                       <div className="flex items-center gap-3 mt-0.5">
-                        <span className="inline-block px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded text-xs font-medium">
-                          {assignment.subject.replace(/_/g, ' ')}
-                        </span>
-                        {section?.grade && (
+                        {section.grade && (
                           <span className="text-xs text-gray-500">Grade {section.grade}</span>
                         )}
                         <span className="text-xs text-gray-400 flex items-center gap-1">
                           <Users className="w-3 h-3" /> {studentCount} student{studentCount !== 1 ? 's' : ''}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {teacherCount} subject{teacherCount !== 1 ? 's' : ''} assigned
                         </span>
                       </div>
                     </div>
@@ -537,7 +592,10 @@ export function TeacherDashboard() {
                   <Button
                     size="sm"
                     leftIcon={<Upload className="w-3.5 h-3.5" />}
-                    onClick={() => { setUploadTarget(assignment); setView('upload'); }}
+                    onClick={() => {
+                      setSelectedSectionId(section.id);
+                      setView('upload');
+                    }}
                   >
                     Upload Content
                   </Button>
@@ -562,7 +620,7 @@ export function TeacherDashboard() {
         ) : uploads.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <p className="font-medium">No uploads yet</p>
-            <p className="text-sm mt-1">Upload your first question paper from a section above</p>
+            <p className="text-sm mt-1">Upload your first question paper using the button above</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-700/50">
@@ -576,9 +634,24 @@ export function TeacherDashboard() {
                     <p className="text-sm font-medium text-gray-200">
                       {upload.class_sections?.name || 'Unknown Section'} - {upload.subject.replace(/_/g, ' ')}
                     </p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(upload.createdAt).toLocaleDateString()} · {upload._count?.upload_images ?? 0} image{(upload._count?.upload_images ?? 0) !== 1 ? 's' : ''} · {upload._count?.extracted_questions ?? 0} questions
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-gray-500">
+                        {new Date(upload.createdAt).toLocaleDateString()} · {upload._count?.upload_images ?? 0} image{(upload._count?.upload_images ?? 0) !== 1 ? 's' : ''} · {upload._count?.extracted_questions ?? 0} questions
+                      </p>
+                      {upload.uploadedByUser && (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                          <User className="w-3 h-3" />
+                          {upload.uploadedByUser.name || 'Unknown'}
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            upload.uploadedByUser.role === 'ADMINISTRATOR'
+                              ? 'bg-violet-500/10 text-violet-400'
+                              : 'bg-blue-500/10 text-blue-400'
+                          }`}>
+                            {upload.uploadedByUser.role === 'ADMINISTRATOR' ? 'Admin' : 'Teacher'}
+                          </span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -671,4 +744,4 @@ function ImageThumbnail({ src, label }: { src: string; label: string }) {
   );
 }
 
-export default TeacherDashboard;
+export default AdminDailyPackages;

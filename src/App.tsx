@@ -15,6 +15,8 @@ import {
   AcceptInvitation,
   StudentDashboard,
   StudentPackages,
+  ProjectsList,
+  ProjectDetail,
   TeacherDashboard,
   TutorDashboard,
   AdminDashboard,
@@ -23,6 +25,7 @@ import {
   AdminConversations,
   AdminTeachers,
   AdminSections,
+  AdminDailyPackages,
   Conversations,
   Chat,
   Profile,
@@ -94,6 +97,8 @@ function App() {
           >
             <Route path="/dashboard/student" element={<StudentDashboard />} />
             <Route path="/student/packages" element={<StudentPackages />} />
+            <Route path="/projects" element={<ProjectsList />} />
+            <Route path="/projects/:projectId" element={<ProjectDetail />} />
             <Route path="/ask" element={<Navigate to="/dashboard/student" replace />} />
           </Route>
 
@@ -140,6 +145,7 @@ function App() {
             }
           >
             <Route path="/admin/sections" element={<AdminSections />} />
+            <Route path="/admin/daily-packages" element={<AdminDailyPackages />} />
           </Route>
 
           {/* Admin + Administrator shared routes */}
