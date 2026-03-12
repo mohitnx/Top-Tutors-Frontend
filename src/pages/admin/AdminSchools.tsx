@@ -314,7 +314,7 @@ function CreateSchoolModal({
                 label="Country"
                 value={formData.country}
                 onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                placeholder="e.g. PK"
+                placeholder="e.g. Nepal"
               />
             </div>
           </div>
@@ -330,7 +330,7 @@ function CreateSchoolModal({
               value={formData.adminName}
               onChange={(e) => setFormData({ ...formData, adminName: e.target.value })}
               required
-              placeholder="e.g. Muhammad Ali"
+              placeholder="e.g. Mohan Pant"
             />
             <Input
               label="Administrator Email"
@@ -462,7 +462,7 @@ function AssignAdminModal({
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
-          placeholder="e.g. Muhammad Ali"
+          placeholder="e.g. Mohan Pant"
         />
         <Input
           label="Email Address"
