@@ -6,7 +6,7 @@ import {
   ThumbsUp, ThumbsDown, RotateCcw, UserPlus,
   Paperclip, ChevronDown, ChevronRight,
   Users, Zap, RefreshCw, Brain, Globe, FolderOpen,
-  Check, Search,
+  Check, Search, Download,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { geminiChatApi, tutorSessionApi, projectsApi } from '../../api';
@@ -495,6 +495,20 @@ function MessageBubble({
           <CouncilResponsesDisplay responses={message.councilResponses} />
         )}
 
+        {/* Report PDF download */}
+        {!isUser && !isStreaming && message.reportDownload && (
+          <a
+            href={message.reportDownload.downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            download={message.reportDownload.filename}
+            className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-300 rounded-xl text-sm font-medium transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            {message.reportDownload.filename}
+          </a>
+        )}
+
         {/* Feedback / error actions */}
         {!isUser && !isStreaming && (
           <div className="flex flex-col gap-1.5 mt-1.5">
@@ -652,6 +666,7 @@ export function StudentDashboard() {
       const finalMode = chunk.mode || streamMode;
       const finalProvider = chunk.provider || streamProvider;
       const finalSources = streamSources.length > 0 ? streamSources : undefined;
+      const reportDl = chunk.reportDownload ? { downloadUrl: chunk.reportDownload.downloadUrl, filename: chunk.reportDownload.filename } : undefined;
 
       setMessages((prev) => {
         const finalContent = chunk.fullContent ?? streamingContent ?? '';
@@ -669,7 +684,7 @@ export function StudentDashboard() {
         if (prev.some((m) => m.id === chunk.messageId)) {
           return prev.map((m) =>
             m.id === chunk.messageId
-              ? { ...m, content: finalContent, isStreaming: false, isComplete: true, hasError: false, errorMessage: null, councilResponses: councilData || m.councilResponses, thinkingTrace: traceData, mode: finalMode || undefined, provider: finalProvider || undefined, sources: finalSources }
+              ? { ...m, content: finalContent, isStreaming: false, isComplete: true, hasError: false, errorMessage: null, councilResponses: councilData || m.councilResponses, thinkingTrace: traceData, mode: finalMode || undefined, provider: finalProvider || undefined, sources: finalSources, reportDownload: reportDl || m.reportDownload }
               : m
           );
         }
@@ -680,7 +695,7 @@ export function StudentDashboard() {
             content: finalContent, attachments: null, audioUrl: null, transcription: null,
             isStreaming: false, isComplete: true, hasError: false, errorMessage: null,
             feedback: null, councilResponses: councilData, createdAt: new Date().toISOString(),
-            thinkingTrace: traceData, mode: finalMode || undefined, provider: finalProvider || undefined, sources: finalSources,
+            thinkingTrace: traceData, mode: finalMode || undefined, provider: finalProvider || undefined, sources: finalSources, reportDownload: reportDl,
           },
         ];
       });

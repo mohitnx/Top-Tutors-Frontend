@@ -814,6 +814,7 @@ export interface AIMessage {
   mode?: 'single' | 'deep-think' | 'deep-research' | 'council';
   provider?: string;
   sources?: { title: string; url?: string }[];
+  reportDownload?: { downloadUrl: string; filename: string };
 }
 
 // AI Attachment
@@ -847,6 +848,11 @@ export interface StreamChunk {
   activeExpert?: string;
   provider?: string;
   readAloud?: boolean;
+  reportDownload?: {
+    downloadUrl: string;
+    filename: string;
+    messageId: string;
+  };
 }
 
 // Council Mode Events
