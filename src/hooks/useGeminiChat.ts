@@ -339,6 +339,7 @@ export function useGeminiChat({
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
         setIsWaitingForStream(true);
+        setThinkingTrace([]);
         const response = await geminiChatApi.sendMessage({
           content,
           sessionId: targetSessionId || sessionId,
@@ -368,6 +369,7 @@ export function useGeminiChat({
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
         setIsWaitingForStream(true);
+        setThinkingTrace([]);
         const response = await geminiChatApi.sendMessageWithAttachments(
           files,
           content,
@@ -397,6 +399,7 @@ export function useGeminiChat({
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
         setIsWaitingForStream(true);
+        setThinkingTrace([]);
         const response = await geminiChatApi.sendAudioMessage(
           audio,
           targetSessionId || sessionId,
