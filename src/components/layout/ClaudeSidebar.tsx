@@ -54,11 +54,11 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
 
   // Fetch AI chat sessions
   const fetchAiSessions = useCallback(async () => {
-    if (!user || user.role !== Role.STUDENT) return;
-    
+    if (!user) return;
+
     try {
       setIsLoadingAiSessions(true);
-      const response = await geminiChatApi.getSessions({ limit: 10 });
+      const response = await geminiChatApi.getSessions({ limit: 50 });
       setAiSessions(response.sessions || []);
     } catch (error) {
       console.error('Failed to fetch AI sessions:', error);
@@ -80,7 +80,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
         return '/admin';
       case Role.TEACHER: return '/dashboard/teacher';
       case Role.TUTOR: return '/dashboard/tutor';
-      default: return '/dashboard/student';
+      default: return '/chat';
     }
   };
 
@@ -93,8 +93,11 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
     if (user.role === Role.STUDENT && (user.schoolId || user.students?.schoolId || user.studentProfile?.schoolId)) {
       items.push(
         { label: 'Packages', path: '/student/packages', icon: Package },
-        { label: 'Projects', path: '/projects', icon: FolderOpen },
       );
+    }
+
+    if ([Role.STUDENT, Role.TEACHER, Role.TUTOR].includes(user.role)) {
+      items.push({ label: 'Projects', path: '/projects', icon: FolderOpen });
     }
 
     if (user.role === Role.TEACHER) {
@@ -152,13 +155,13 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
   // Handle session click
   const handleSessionClick = (sessionId: string) => {
     setIsMobileOpen(false);
-    navigate(`/dashboard/student?session=${sessionId}`);
+    navigate(`/chat?session=${sessionId}`);
   };
 
   // Handle new chat
   const handleNewChat = () => {
     setIsMobileOpen(false);
-    navigate('/dashboard/student');
+    navigate('/chat');
   };
 
   // Context menu actions
@@ -179,7 +182,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
       await geminiChatApi.deleteSession(sessionId);
       setAiSessions(prev => prev.filter(s => s.id !== sessionId));
       if (currentSessionId === sessionId) {
-        navigate('/dashboard/student');
+        navigate('/chat');
       }
     } catch (error) {
       console.error('Failed to delete session:', error);
@@ -237,8 +240,8 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
         </button>
       </div>
 
-      {/* New Chat Button (for students) */}
-      {user?.role === Role.STUDENT && (
+      {/* New Chat Button - hidden for ADMIN */}
+      {user && user.role !== Role.ADMIN && (
         <div className="p-2">
           <button
             onClick={handleNewChat}
@@ -275,8 +278,8 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
         })}
       </nav>
 
-      {/* AI Chat Sessions (for students) */}
-      {!isCollapsed && user?.role === Role.STUDENT && (
+      {/* AI Chat Sessions - hidden for ADMIN */}
+      {!isCollapsed && user && user.role !== Role.ADMIN && (
         <div className="flex-1 min-h-0 border-t border-gray-800/50 flex flex-col">
           {/* Search */}
           <div className="p-2">

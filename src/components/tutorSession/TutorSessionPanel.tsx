@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  UserPlus, Loader2, Check, X, Video, 
-  Share2, Phone, Sparkles
+import {
+  UserPlus, Check, X, Video,
+  Share2, Phone, Sparkles, Clock, AlertCircle,
+  Search, Users
 } from 'lucide-react';
 import { tutorSessionApi } from '../../api';
 import {
@@ -9,10 +10,18 @@ import {
   disconnectTutorSessionSocket,
   subscribeToAISession,
   subscribeToSession,
-  // onTutorAccepted,
-  // offTutorAccepted,
+  onTutorRequestProgress,
+  offTutorRequestProgress,
+  onTutorWaitStatus,
+  offTutorWaitStatus,
+  onTutorETAUpdate,
+  offTutorETAUpdate,
 } from '../../services/tutorSessionSocket';
-import { DailyRoom, /* TutorSessionAcceptedEvent, */ AIUrgency } from '../../types';
+import {
+  DailyRoom, AIUrgency,
+  TutorRequestProgressStatus,
+  TutorWaitStatusType,
+} from '../../types';
 import { AudioCall } from './AudioCall';
 import { FloatingTutorSession } from './FloatingTutorSession';
 import toast from 'react-hot-toast';
@@ -28,7 +37,7 @@ interface TutorSessionPanelProps {
   className?: string;
 }
 
-type SessionState = 
+type SessionState =
   | 'idle'
   | 'requesting'
   | 'waiting'
@@ -40,6 +49,14 @@ interface TutorInfo {
   name: string;
   avatar?: string;
 }
+
+// Progress step config for animated status display
+const PROGRESS_STEPS: { status: TutorRequestProgressStatus; label: string; icon: React.ReactNode }[] = [
+  { status: 'ANALYZING', label: 'Analyzing conversation...', icon: <Search className="w-4 h-4" /> },
+  { status: 'ANALYZED', label: 'Summary prepared', icon: <Check className="w-4 h-4" /> },
+  { status: 'CONTACTING', label: 'Contacting tutors...', icon: <Users className="w-4 h-4" /> },
+  { status: 'WAITING', label: 'Waiting for tutor...', icon: <Clock className="w-4 h-4" /> },
+];
 
 export function TutorSessionPanel({
   aiSessionId,
@@ -57,6 +74,14 @@ export function TutorSessionPanel({
   const [topic, setTopic] = useState<string | null>(null);
   const [showFloatingSession, setShowFloatingSession] = useState(false);
 
+  // New: Progress tracking state
+  const [progressStatus, setProgressStatus] = useState<TutorRequestProgressStatus | null>(null);
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
+  const [waitStatus, setWaitStatus] = useState<TutorWaitStatusType | null>(null);
+  const [waitMessage, setWaitMessage] = useState<string | null>(null);
+  const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
+  const [etaMessage, setEtaMessage] = useState<string | null>(null);
+
   // Connect to tutor session socket
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -71,6 +96,41 @@ export function TutorSessionPanel({
       disconnectTutorSessionSocket();
     };
   }, [aiSessionId]);
+
+  // Listen for progress events during request flow
+  useEffect(() => {
+    if (sessionState !== 'requesting' && sessionState !== 'waiting') return;
+
+    const handleProgress = (data: { status: TutorRequestProgressStatus; message: string }) => {
+      setProgressStatus(data.status);
+      setProgressMessage(data.message);
+
+      // Auto-transition to waiting state when we reach CONTACTING or WAITING
+      if (data.status === 'CONTACTING' || data.status === 'WAITING') {
+        setSessionState('waiting');
+      }
+    };
+
+    const handleWaitStatus = (data: { tutorSessionId: string; status: TutorWaitStatusType; message: string }) => {
+      setWaitStatus(data.status);
+      setWaitMessage(data.message);
+    };
+
+    const handleETAUpdate = (data: { shortestWaitMinutes: number; message: string }) => {
+      setEtaMinutes(data.shortestWaitMinutes);
+      setEtaMessage(data.message);
+    };
+
+    onTutorRequestProgress(handleProgress);
+    onTutorWaitStatus(handleWaitStatus);
+    onTutorETAUpdate(handleETAUpdate);
+
+    return () => {
+      offTutorRequestProgress();
+      offTutorWaitStatus();
+      offTutorETAUpdate();
+    };
+  }, [sessionState]);
 
   // Handle active tutor session changes
   useEffect(() => {
@@ -149,6 +209,12 @@ export function TutorSessionPanel({
     setTutorSessionId(null);
     setSummary(null);
     setTopic(null);
+    setProgressStatus(null);
+    setProgressMessage(null);
+    setWaitStatus(null);
+    setWaitMessage(null);
+    setEtaMinutes(null);
+    setEtaMessage(null);
     toast('Request cancelled');
   }, []);
 
@@ -210,45 +276,119 @@ export function TutorSessionPanel({
         );
 
       case 'requesting':
-        return (
-          <div className="text-center p-6">
-            <Loader2 className="w-12 h-12 mx-auto mb-4 text-violet-400 animate-spin" />
-            <h3 className="text-lg font-semibold text-white mb-2">
-              Analyzing Conversation...
-            </h3>
-            <p className="text-gray-400 text-sm">
-              Our AI is preparing a summary for the tutor
-            </p>
-          </div>
-        );
-
       case 'waiting':
         return (
           <div className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
+            {/* Animated Progress Steps */}
+            <div className="mb-5">
+              <div className="space-y-3">
+                {PROGRESS_STEPS.map((step, index) => {
+                  const currentIndex = PROGRESS_STEPS.findIndex(s => s.status === progressStatus);
+                  const isActive = step.status === progressStatus;
+                  const isCompleted = currentIndex >= 0 && index < currentIndex;
+                  const isPending = currentIndex < 0 ? index > 0 : index > currentIndex;
+
+                  return (
+                    <div key={step.status} className="flex items-center gap-3">
+                      {/* Step indicator */}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-500 ${
+                        isCompleted
+                          ? 'bg-emerald-500 text-white'
+                          : isActive
+                            ? 'bg-violet-500 text-white animate-pulse'
+                            : 'bg-gray-700 text-gray-500'
+                      }`}>
+                        {isCompleted ? (
+                          <Check className="w-4 h-4" />
+                        ) : isActive ? (
+                          <div className="relative">
+                            {step.icon}
+                            <div className="absolute inset-0 rounded-full border-2 border-violet-400 animate-ping opacity-50" />
+                          </div>
+                        ) : (
+                          step.icon
+                        )}
+                      </div>
+
+                      {/* Step label */}
+                      <span className={`text-sm transition-colors duration-300 ${
+                        isCompleted
+                          ? 'text-emerald-400'
+                          : isActive
+                            ? 'text-white font-medium'
+                            : 'text-gray-500'
+                      }`}>
+                        {step.label}
+                      </span>
+
+                      {/* Connector line (between steps) */}
+                      {index < PROGRESS_STEPS.length - 1 && isPending && null}
+                    </div>
+                  );
+                })}
               </div>
-              <div>
-                <h3 className="font-medium text-amber-200">Finding a Tutor...</h3>
-                <p className="text-xs text-gray-400">Please wait while we connect you</p>
-              </div>
+
+              {/* Progress message from server */}
+              {progressMessage && (
+                <p className="text-xs text-gray-400 mt-3 pl-11">{progressMessage}</p>
+              )}
             </div>
-            
+
+            {/* Wait Status Banner */}
+            {waitStatus && (
+              <div className={`rounded-lg p-3 mb-4 ${
+                waitStatus === 'NO_TUTORS'
+                  ? 'bg-red-500/10 border border-red-500/30'
+                  : 'bg-amber-500/10 border border-amber-500/30'
+              }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle className={`w-4 h-4 ${
+                    waitStatus === 'NO_TUTORS' ? 'text-red-400' : 'text-amber-400'
+                  }`} />
+                  <span className={`text-sm font-medium ${
+                    waitStatus === 'NO_TUTORS' ? 'text-red-300' : 'text-amber-300'
+                  }`}>
+                    {waitStatus === 'NO_TUTORS' ? 'No Tutors Available' : 'All Tutors Busy'}
+                  </span>
+                </div>
+                <p className={`text-xs ${
+                  waitStatus === 'NO_TUTORS' ? 'text-red-400/70' : 'text-amber-400/70'
+                }`}>
+                  {waitMessage}
+                </p>
+              </div>
+            )}
+
+            {/* ETA Display */}
+            {etaMinutes !== null && (
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm font-medium text-blue-300">
+                    Estimated Wait: ~{etaMinutes} min{etaMinutes !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {etaMessage && (
+                  <p className="text-xs text-blue-400/70">{etaMessage}</p>
+                )}
+              </div>
+            )}
+
+            {/* Topic & Summary */}
             {topic && (
               <div className="bg-gray-800/50 rounded-lg p-3 mb-4">
                 <p className="text-xs text-gray-500 mb-1">Topic detected:</p>
                 <p className="text-sm text-white font-medium">{topic}</p>
               </div>
             )}
-            
+
             {summary && (
               <div className="bg-gray-800/50 rounded-lg p-3 mb-4">
                 <p className="text-xs text-gray-500 mb-1">AI Summary:</p>
                 <p className="text-sm text-gray-300 line-clamp-3">{summary}</p>
               </div>
             )}
-            
+
             <button
               onClick={handleCancelRequest}
               className="w-full px-4 py-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors text-sm"

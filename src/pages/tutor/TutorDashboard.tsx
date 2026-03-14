@@ -1,16 +1,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  MessageSquare, Clock, CheckCircle, AlertCircle,  
-  Lock, Unlock, ChevronRight, Sparkles, BookOpen
+import {
+  MessageSquare, Clock, CheckCircle, AlertCircle,
+  Lock, Unlock, ChevronRight, Sparkles, BookOpen, UserPlus
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesApi } from '../../api';
-import { Conversation, ConversationStatus, SessionTakenEvent, ConversationTakenEvent, AcceptSessionResponse } from '../../types';
-import { 
+import {
+  Conversation, ConversationStatus, SessionTakenEvent, ConversationTakenEvent, AcceptSessionResponse,
+  SessionInviteEvent, BusyTutorNotificationEvent, TutorReminderEvent, TutorSessionTakenEvent,
+} from '../../types';
+import {
   getSocket,
   onSocketConnect,
 } from '../../services/socket';
+import {
+  connectTutorSessionSocket,
+  onSessionInvite,
+  offSessionInvite,
+  onBusyTutorNotification,
+  offBusyTutorNotification,
+  onTutorReminder,
+  offTutorReminder,
+  onTutorSessionTaken,
+  offTutorSessionTaken,
+} from '../../services/tutorSessionSocket';
 import { SubjectBadge, StatusBadge } from '../../components/ui/Badge';
 import Avatar from '../../components/ui/Avatar';
 import { PendingHelpRequests, TutorActiveSession } from '../../components/tutorSession';
@@ -74,6 +88,64 @@ export function TutorDashboard() {
   // New: Active tutor session state (for AI help requests)
   const [activeTutorSession, setActiveTutorSession] = useState<AcceptSessionResponse | null>(null);
   const [showHelpRequests, setShowHelpRequests] = useState(true);
+
+  // Session invite state
+  const [pendingInvite, setPendingInvite] = useState<SessionInviteEvent | null>(null);
+
+  // Connect to tutor-session namespace for invite/notification events
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+
+    connectTutorSessionSocket(token);
+
+    // Session invite from another tutor
+    const handleSessionInvite = (data: SessionInviteEvent) => {
+      console.log('[TutorDashboard] Session invite received:', data);
+      setPendingInvite(data);
+      toast(`You've been invited to join a session: ${data.topic}`, {
+        icon: '📩',
+        duration: 10000,
+      });
+    };
+
+    // Busy tutor notification
+    const handleBusyNotification = (data: BusyTutorNotificationEvent) => {
+      console.log('[TutorDashboard] Busy tutor notification:', data);
+      toast(
+        `${data.studentName} is waiting for help with ${data.subject}`,
+        { icon: '⏳', duration: 8000 }
+      );
+    };
+
+    // Tutor reminder
+    const handleReminder = (data: TutorReminderEvent) => {
+      console.log('[TutorDashboard] Tutor reminder:', data);
+      toast(data.message, { icon: '🔔', duration: 8000 });
+    };
+
+    // Session taken on tutor-session namespace
+    const handleTutorSessionTaken = (data: TutorSessionTakenEvent) => {
+      console.log('[TutorDashboard] Tutor session taken:', data);
+      toast(data.message || 'Session taken by another tutor', { icon: '👋', duration: 3000 });
+      // Dismiss invite if it was for this session
+      if (pendingInvite?.tutorSessionId === data.conversationId) {
+        setPendingInvite(null);
+      }
+    };
+
+    onSessionInvite(handleSessionInvite);
+    onBusyTutorNotification(handleBusyNotification);
+    onTutorReminder(handleReminder);
+    onTutorSessionTaken(handleTutorSessionTaken);
+
+    return () => {
+      offSessionInvite();
+      offBusyTutorNotification();
+      offTutorReminder();
+      offTutorSessionTaken();
+    };
+  }, [pendingInvite]);
 
   // Fetch tutor's own conversations
   const fetchConversations = useCallback(async () => {
@@ -306,6 +378,44 @@ export function TutorDashboard() {
             <p className="text-xs text-emerald-300/70">
               {pendingConversations.length} student{pendingConversations.length !== 1 ? 's' : ''} waiting
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Session Invite Banner */}
+      {pendingInvite && (
+        <div className="bg-violet-500/10 border border-violet-500/30 rounded-lg p-4 mb-4">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-violet-500/20 rounded-lg">
+                <UserPlus className="w-5 h-5 text-violet-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-violet-200">Session Invite</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  You've been invited to join a session on: <span className="text-white font-medium">{pendingInvite.topic}</span>
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Invited by tutor</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPendingInvite(null)}
+                className="px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => {
+                  // Join via Daily room URL from the invite
+                  window.open(pendingInvite.dailyRoomUrl, '_blank');
+                  setPendingInvite(null);
+                }}
+                className="px-4 py-1.5 text-xs bg-violet-500 hover:bg-violet-400 text-white font-medium rounded-lg transition-colors"
+              >
+                Join Session
+              </button>
+            </div>
           </div>
         </div>
       )}

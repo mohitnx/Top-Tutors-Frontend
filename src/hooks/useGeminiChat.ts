@@ -72,6 +72,11 @@ export function useGeminiChat({
   const [councilMembers, setCouncilMembers] = useState<CouncilMemberCompleteEvent[]>([]);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [isWaitingForStream, setIsWaitingForStream] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  const [thinkingTrace, setThinkingTrace] = useState<string[]>([]);
+  const [streamMode, setStreamMode] = useState<'single' | 'deep-think' | 'deep-research' | 'council' | null>(null);
+  const [streamSources, setStreamSources] = useState<{ title: string; url?: string }[]>([]);
+  const [streamProvider, setStreamProvider] = useState<string | null>(null);
 
   // Refs to hold latest callbacks
   const onStreamStartRef = useRef(onStreamStart);
@@ -158,8 +163,13 @@ export function useGeminiChat({
           setIsSynthesizing(false);
           setCouncilAnalyzing(false);
           setCouncilExperts([]);
+          setStreamStatus(null);
           setStreamStartedAtMs(now);
           setLastRealChunkAtMs(null);
+          setThinkingTrace([]);
+          setStreamMode(chunk.mode || null);
+          setStreamSources([]);
+          setStreamProvider(chunk.provider || null);
           if (!preserveContentOnNextStartRef.current) {
             setStreamingContent('');
           }
@@ -183,12 +193,30 @@ export function useGeminiChat({
           onStreamChunkRef.current?.(chunk);
           break;
 
+        case 'status':
+          if (chunk.message) {
+            setStreamStatus(chunk.message);
+          }
+          if (chunk.thinkingTrace) {
+            setThinkingTrace(chunk.thinkingTrace);
+          }
+          if (chunk.sources) {
+            setStreamSources(chunk.sources);
+          }
+          onStreamChunkRef.current?.(chunk);
+          break;
+
         case 'end':
+          // Capture final thinkingTrace before resetting
+          if (chunk.thinkingTrace) {
+            setThinkingTrace(chunk.thinkingTrace);
+          }
           setIsStreaming(false);
           setIsWaitingForStream(false);
           setIsSynthesizing(false);
           setCouncilAnalyzing(false);
           setCouncilExperts([]);
+          setStreamStatus(null);
           setStreamingContent('');
           setStreamingMessageId(null);
           setStreamStartedAtMs(null);
@@ -201,6 +229,7 @@ export function useGeminiChat({
         case 'error':
           setIsStreaming(false);
           setIsWaitingForStream(false);
+          setStreamStatus(null);
           setStreamingMessageId(null);
           setStreamStartedAtMs(null);
           setLastStreamEventAtMs(null);
@@ -305,7 +334,8 @@ export function useGeminiChat({
   const sendMessage = useCallback(
     async (
       content: string,
-      targetSessionId?: string
+      targetSessionId?: string,
+      options?: { deepThink?: boolean; deepResearch?: boolean; council?: boolean; projectId?: string; readAloud?: boolean }
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
         setIsWaitingForStream(true);
@@ -313,6 +343,7 @@ export function useGeminiChat({
           content,
           sessionId: targetSessionId || sessionId,
           stream: true,
+          ...options,
         });
 
         return {
@@ -332,14 +363,17 @@ export function useGeminiChat({
     async (
       files: File[],
       content?: string,
-      targetSessionId?: string
+      targetSessionId?: string,
+      options?: { deepThink?: boolean; deepResearch?: boolean; council?: boolean; projectId?: string; readAloud?: boolean }
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
         setIsWaitingForStream(true);
         const response = await geminiChatApi.sendMessageWithAttachments(
           files,
           content,
-          targetSessionId || sessionId
+          targetSessionId || sessionId,
+          undefined,
+          options
         );
 
         return {
@@ -358,13 +392,16 @@ export function useGeminiChat({
   const sendAudioMessage = useCallback(
     async (
       audio: File,
-      targetSessionId?: string
+      targetSessionId?: string,
+      options?: { deepThink?: boolean; deepResearch?: boolean; council?: boolean; projectId?: string; readAloud?: boolean }
     ): Promise<{ messageId: string; sessionId: string } | null> => {
       try {
         setIsWaitingForStream(true);
         const response = await geminiChatApi.sendAudioMessage(
           audio,
-          targetSessionId || sessionId
+          targetSessionId || sessionId,
+          undefined,
+          options
         );
 
         return {
@@ -415,6 +452,47 @@ export function useGeminiChat({
     }
   }, []);
 
+  // Reconnect to an in-progress or completed stream (e.g. after page reload)
+  const reconnectToStream = useCallback((data: { messageId?: string; sessionId?: string }) => {
+    return new Promise<import('../services/geminiSocket').ReconnectStreamResponse>((resolve) => {
+      import('../services/geminiSocket').then(({ reconnectStream: rs, getGeminiSocket, onGeminiSocketConnect }) => {
+        const attempt = () => {
+          rs(data, (response) => {
+            if (response.success) {
+              if (response.thinkingTrace) setThinkingTrace(response.thinkingTrace);
+              if (response.mode) setStreamMode(response.mode);
+              if (response.provider) setStreamProvider(response.provider);
+
+              if (!response.complete && response.isStreaming) {
+                setIsStreaming(true);
+                setStreamingContent(response.content || '');
+                setStreamingMessageId(response.messageId || null);
+                setStreamStartedAtMs(Date.now());
+              }
+            }
+            resolve(response);
+          });
+        };
+
+        // If socket is already connected, attempt immediately
+        if (getGeminiSocket()?.connected) {
+          attempt();
+        } else {
+          // Wait for socket to connect, then attempt
+          const unsub = onGeminiSocketConnect(() => {
+            unsub();
+            attempt();
+          });
+          // Timeout after 8s so we don't hang forever
+          setTimeout(() => {
+            unsub();
+            resolve({ success: false });
+          }, 8000);
+        }
+      });
+    });
+  }, []);
+
   const streamUx = useMemo(() => {
     const now = Date.now();
 
@@ -432,7 +510,10 @@ export function useGeminiChat({
     const hasReceivedContent = lastRealChunkAtMs !== null;
 
     let statusText: string | null = null;
-    if (isWaitingForStream) {
+    if (streamStatus) {
+      // Backend-driven status (Deep Think / Deep Research progress)
+      statusText = streamStatus;
+    } else if (isWaitingForStream) {
       // Between sending and first stream event — immediate feedback
       if (isSynthesizing) statusText = 'Combining expert perspectives…';
       else if (councilAnalyzing) statusText = 'Our experts are analyzing your question…';
@@ -460,7 +541,7 @@ export function useGeminiChat({
       showTakingLongerThanUsual,
       shouldOfferRetry: showConnectionSlow,
     };
-  }, [isStreaming, isWaitingForStream, lastRealChunkAtMs, lastStreamEventAtMs, streamStartedAtMs, uxNowTick, councilAnalyzing, isSynthesizing]);
+  }, [isStreaming, isWaitingForStream, lastRealChunkAtMs, lastStreamEventAtMs, streamStartedAtMs, uxNowTick, councilAnalyzing, isSynthesizing, streamStatus]);
 
   return {
     isConnected,
@@ -469,11 +550,17 @@ export function useGeminiChat({
     streamingContent,
     streamingMessageId,
     streamUx,
+    streamStatus,
+    thinkingTrace,
+    streamMode,
+    streamSources,
+    streamProvider,
     councilAnalyzing,
     councilExperts,
     councilMembers,
     isSynthesizing,
     prepareForRetry,
+    reconnectToStream,
     sendMessage,
     sendMessageWithAttachments,
     sendAudioMessage,

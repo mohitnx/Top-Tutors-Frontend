@@ -7,6 +7,7 @@ import {
   ConsentStatusResponse,
   DailyRoom,
   AIUrgency,
+  AvailableTutor,
 } from '../types';
 
 // ============================================
@@ -170,6 +171,32 @@ export const tutorSessionApi = {
       { meetingData }
     );
     return unwrapData<{ success: boolean }>(response.data);
+  },
+
+  // =====================
+  // Multi-Tutor Endpoints
+  // =====================
+
+  // Invite another tutor to join a session
+  inviteTutor: async (
+    sessionId: string,
+    tutorId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post(
+      `/tutor-session/${sessionId}/invite-tutor`,
+      { tutorId }
+    );
+    return unwrapData<{ success: boolean; message: string }>(response.data);
+  },
+
+  // Get available tutors to invite
+  getAvailableTutors: async (
+    sessionId: string
+  ): Promise<AvailableTutor[]> => {
+    const response = await api.get(
+      `/tutor-session/${sessionId}/available-tutors`
+    );
+    return unwrapData<AvailableTutor[]>(response.data);
   },
 
   // Get Daily.co meeting data for a session

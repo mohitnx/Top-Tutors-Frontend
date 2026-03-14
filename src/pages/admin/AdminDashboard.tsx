@@ -75,7 +75,9 @@ export function AdminDashboard() {
         teachersApi.getTeachers(),
       ]);
 
-      setSections(sectionsData);
+      // Flatten grouped sections into array
+      const allSections = Object.values(sectionsData.grades).flat();
+      setSections(allSections);
       setTeachers(teachersData);
 
       const schoolId = user?.administeredSchool?.id;
@@ -88,13 +90,13 @@ export function AdminDashboard() {
         }
       }
 
-      const totalStudents = schoolData?._count?.students ?? sectionsData.reduce((sum, s) => sum + (s._count?.student_sections ?? 0), 0);
+      const totalStudents = schoolData?._count?.students ?? allSections.reduce((sum: number, s) => sum + (s._count?.student_sections ?? 0), 0);
 
       setAdminrStats({
         schoolName: schoolData?.name || user?.administeredSchool?.name || 'My School',
         totalStudents,
         totalTeachers: teachersData.length,
-        totalSections: sectionsData.length,
+        totalSections: allSections.length,
       });
     } catch (error) {
       console.error('Failed to fetch administrator dashboard data:', error);

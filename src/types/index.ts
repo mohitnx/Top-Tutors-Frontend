@@ -17,18 +17,15 @@ export enum Subject {
   CHEMISTRY = "CHEMISTRY",
   BIOLOGY = "BIOLOGY",
   ENGLISH = "ENGLISH",
-  URDU = "URDU",
-  ISLAMIYAT = "ISLAMIYAT",
-  PAKISTAN_STUDIES = "PAKISTAN_STUDIES",
+  HISTORY = "HISTORY",
+  GEOGRAPHY = "GEOGRAPHY",
   COMPUTER_SCIENCE = "COMPUTER_SCIENCE",
-  GENERAL_KNOWLEDGE = "GENERAL_KNOWLEDGE",
-  ACCOUNTING = "ACCOUNTING",
   ECONOMICS = "ECONOMICS",
-  BUSINESS_STUDIES = "BUSINESS_STUDIES",
-  SOCIOLOGY = "SOCIOLOGY",
-  PSYCHOLOGY = "PSYCHOLOGY",
-  ENVIRONMENTAL_SCIENCE = "ENVIRONMENTAL_SCIENCE",
-  GENERAL = "GENERAL"
+  ACCOUNTING = "ACCOUNTING",
+  GENERAL = "GENERAL",
+  SOCIAL = "SOCIAL",
+  HUMANITIES = "HUMANITIES",
+  ARTS = "ARTS"
 }
 
 export enum MessageType {
@@ -813,6 +810,10 @@ export interface AIMessage {
   feedback: 'GOOD' | 'BAD' | null;
   councilResponses: CouncilMemberResponse[] | null;
   createdAt: string;
+  thinkingTrace?: string[];
+  mode?: 'single' | 'deep-think' | 'deep-research' | 'council';
+  provider?: string;
+  sources?: { title: string; url?: string }[];
 }
 
 // AI Attachment
@@ -825,7 +826,7 @@ export interface AIAttachment {
 }
 
 // Stream Chunk Types
-export type StreamChunkType = 'start' | 'chunk' | 'heartbeat' | 'end' | 'error';
+export type StreamChunkType = 'start' | 'chunk' | 'heartbeat' | 'end' | 'error' | 'status';
 
 export interface StreamChunk {
   type: StreamChunkType;
@@ -840,6 +841,12 @@ export interface StreamChunk {
     promptTokens: number;
     completionTokens: number;
   };
+  mode?: 'single' | 'deep-think' | 'deep-research' | 'council';
+  thinkingTrace?: string[];
+  sources?: { title: string; url?: string }[];
+  activeExpert?: string;
+  provider?: string;
+  readAloud?: boolean;
 }
 
 // Council Mode Events
@@ -1132,6 +1139,78 @@ export interface NewHelpRequestEvent {
 }
 
 // ============================================
+// Tutor Request Progress Events (Student side)
+// ============================================
+
+// Progress status flow: ANALYZING → ANALYZED → CONTACTING → WAITING
+export type TutorRequestProgressStatus = 'ANALYZING' | 'ANALYZED' | 'CONTACTING' | 'WAITING';
+
+export interface TutorRequestProgressEvent {
+  status: TutorRequestProgressStatus;
+  message: string;
+  timestamp: string;
+}
+
+// Wait status when no tutors available
+export type TutorWaitStatusType = 'ALL_BUSY' | 'NO_TUTORS';
+
+export interface TutorWaitStatusEvent {
+  tutorSessionId: string;
+  status: TutorWaitStatusType;
+  message: string;
+}
+
+// ETA update when tutors are busy
+export interface TutorETAUpdateEvent {
+  shortestWaitMinutes: number;
+  tutorResponses: Array<{
+    tutorId: string;
+    tutorName: string;
+    status: string;
+    estimatedMinutes?: number;
+  }>;
+  message: string;
+}
+
+// Session invite (tutor receives invite to join another tutor's session)
+export interface SessionInviteEvent {
+  tutorSessionId: string;
+  invitedBy: string;
+  dailyRoomUrl: string;
+  dailyToken: string;
+  topic: string;
+}
+
+// Busy tutor notification (tutor sees "student waiting" with ETA request)
+export interface BusyTutorNotificationEvent {
+  conversationId: string;
+  subject: string;
+  studentName: string;
+  message: string;
+}
+
+// Tutor reminder (when tutor's estimated free time arrives)
+export interface TutorReminderEvent {
+  conversationId: string;
+  message: string;
+}
+
+// Session taken by another tutor (on /tutor-session namespace)
+export interface TutorSessionTakenEvent {
+  conversationId: string;
+  message: string;
+}
+
+// Available tutor for invite
+export interface AvailableTutor {
+  id: string;
+  name: string;
+  avatar?: string;
+  status: string;
+  currentSessionId?: string;
+}
+
+// ============================================
 // Daily Learning Package Types
 // ============================================
 
@@ -1193,13 +1272,38 @@ export interface ClassSection {
 // Create Section
 export interface CreateSectionData {
   name: string;
-  grade?: string;
+  grade: string; // Required by backend
   schoolId?: string; // Required for ADMIN, auto-filled for ADMINISTRATOR
 }
 
 export interface UpdateSectionData {
   name?: string;
   grade?: string;
+}
+
+// Grouped sections response from GET /admin/sections
+export interface GroupedSectionsResponse {
+  grades: Record<string, ClassSection[]>;
+  total: number;
+}
+
+// Available student (not in any section)
+export interface AvailableStudent {
+  id: string;       // student profile ID
+  userId: string;
+  name: string | null;
+  email: string;
+  isActive: boolean;
+  grade?: string | null;
+  users?: { name: string | null; email: string };
+}
+
+// Available teacher with current assignments
+export interface AvailableTeacher {
+  id: string;       // teacher profile ID
+  userId: string;
+  users: { name: string | null; email: string };
+  teacher_sections?: TeacherSection[];
 }
 
 // Daily Package Upload (teacher/administrator view)
@@ -1321,11 +1425,41 @@ export interface ProjectChatSessionResponse {
   lastMessageAt: string;
   createdAt: string;
   messageCount?: number;
+  source?: 'project' | 'llm-chat';
   lastMessage?: {
     content: string | null;
     role: 'USER' | 'ASSISTANT' | 'SYSTEM';
     createdAt: string;
   };
+}
+
+export interface ProjectCouncilStatusEvent {
+  type: 'councilAnalysisStart' | 'councilCrossReviewStart';
+  sessionId: string;
+  messageId: string;
+  projectId: string;
+  experts?: Array<{
+    id: string;
+    name: string;
+    label: string;
+    status: string;
+  }>;
+}
+
+export interface ProjectCouncilMemberCompleteEvent {
+  memberId: string;
+  memberName: string;
+  memberLabel: string;
+  content: string;
+  confidence: number;
+  index: number;
+  total: number;
+}
+
+export interface ProjectCouncilSynthesisStartEvent {
+  sessionId: string;
+  messageId: string;
+  projectId: string;
 }
 
 export interface ProjectMessageResponse {
@@ -1343,7 +1477,7 @@ export interface ProjectMessageResponse {
 }
 
 export interface ProjectStreamChunk {
-  type: 'start' | 'chunk' | 'heartbeat' | 'end' | 'error';
+  type: 'start' | 'chunk' | 'heartbeat' | 'end' | 'error' | 'status';
   messageId: string;
   sessionId: string;
   projectId: string;
@@ -1376,11 +1510,28 @@ export interface UpdateProjectRequest {
 export interface SendProjectMessageRequest {
   content?: string;
   sessionId?: string;
+  deepThink?: boolean;
+  deepResearch?: boolean;
+  councilMode?: boolean;
 }
 
 export interface GenerateQuizRequest {
   questionCount?: number;
   quizType?: 'MCQ' | 'SHORT_ANSWER' | 'TRUE_FALSE' | 'MIXED';
   difficulty?: 'EASY' | 'MEDIUM' | 'HARD';
+  sessionId?: string;
+}
+
+export interface SessionResourceResponse {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  type: 'PDF' | 'IMAGE';
+  title: string;
+  url: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  hasExtractedContent: boolean;
+  createdAt: string;
 }
 

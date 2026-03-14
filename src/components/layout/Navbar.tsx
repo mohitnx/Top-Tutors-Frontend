@@ -46,7 +46,7 @@ export function Navbar() {
         return '/dashboard/tutor';
       case Role.STUDENT:
       default:
-        return '/dashboard/student';
+        return '/chat';
     }
   };
 

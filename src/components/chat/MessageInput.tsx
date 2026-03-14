@@ -244,7 +244,7 @@ export function MessageInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.pdf"
+          accept="image/*,.pdf,.txt,.doc,.docx"
           multiple
           className="hidden"
           onChange={handleFileSelect}

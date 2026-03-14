@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Download, Send, MessageSquare, FileText,
-  Sparkles, ChevronDown, ChevronUp, Eye, EyeOff, Maximize2
+  Sparkles, ChevronDown, ChevronUp, Eye, EyeOff, Maximize2,
+  UserPlus, Loader2, Users
 } from 'lucide-react';
 import { tutorSessionApi } from '../../api';
 import {
@@ -35,6 +36,7 @@ import {
   ConsentChangedEvent,
   TutorSessionTypingEvent,
   DailyRoom,
+  AvailableTutor,
 } from '../../types';
 import { FloatingCallIndicator } from './AudioCall';
 import { CollaborativeWhiteboard } from './CollaborativeWhiteboard';
@@ -83,7 +85,13 @@ export function TutorActiveSession({
 
   // Fullscreen mode for tutor
   const [fullscreenMode, setFullscreenMode] = useState<'whiteboard' | 'ai-chat' | 'tutor-chat' | null>(null);
-  
+
+  // Invite tutor state
+  const [showInvitePanel, setShowInvitePanel] = useState(false);
+  const [availableTutors, setAvailableTutors] = useState<AvailableTutor[]>([]);
+  const [isLoadingTutors, setIsLoadingTutors] = useState(false);
+  const [invitingTutorId, setInvitingTutorId] = useState<string | null>(null);
+
   // Refs
   const aiChatEndRef = useRef<HTMLDivElement>(null);
   const tutorChatEndRef = useRef<HTMLDivElement>(null);
@@ -394,6 +402,37 @@ export function TutorActiveSession({
     setFullscreenMode(prev => prev === mode ? null : mode);
   }, []);
 
+  // Fetch available tutors for invite
+  const handleShowInvitePanel = useCallback(async () => {
+    setShowInvitePanel(true);
+    setIsLoadingTutors(true);
+    try {
+      const tutors = await tutorSessionApi.getAvailableTutors(session.id);
+      setAvailableTutors(tutors);
+    } catch (error) {
+      console.error('Failed to fetch available tutors:', error);
+      toast.error('Failed to load available tutors');
+    } finally {
+      setIsLoadingTutors(false);
+    }
+  }, [session?.id]);
+
+  // Invite a tutor to join this session
+  const handleInviteTutor = useCallback(async (tutorId: string) => {
+    setInvitingTutorId(tutorId);
+    try {
+      await tutorSessionApi.inviteTutor(session.id, tutorId);
+      toast.success('Invitation sent!');
+      // Remove from available list
+      setAvailableTutors(prev => prev.filter(t => t.id !== tutorId));
+    } catch (error: any) {
+      const message = error?.response?.data?.message || 'Failed to invite tutor';
+      toast.error(message);
+    } finally {
+      setInvitingTutorId(null);
+    }
+  }, [session?.id]);
+
   // Guard - show loading if data isn't ready
   if (!session || !summary) {
     return (
@@ -582,6 +621,13 @@ export function TutorActiveSession({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={handleShowInvitePanel}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-violet-400 hover:text-white hover:bg-violet-500/20 border border-violet-500/30 rounded-lg transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Invite Tutor
+            </button>
+            <button
               onClick={handleDownloadChat}
               className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
             >
@@ -598,6 +644,69 @@ export function TutorActiveSession({
           </div>
         </div>
       </header>
+
+      {/* Invite Tutor Panel */}
+      {showInvitePanel && (
+        <div className="mx-4 mt-4 bg-[#1a1a1a] rounded-xl border border-violet-500/30 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-violet-500/10">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-violet-400" />
+              <h3 className="font-medium text-white">Invite Another Tutor</h3>
+            </div>
+            <button
+              onClick={() => setShowInvitePanel(false)}
+              className="p-1 text-gray-400 hover:text-white rounded transition-colors"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="p-4">
+            {isLoadingTutors ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
+                <span className="ml-2 text-gray-400 text-sm">Loading available tutors...</span>
+              </div>
+            ) : availableTutors.length === 0 ? (
+              <div className="text-center py-4">
+                <Users className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                <p className="text-gray-400 text-sm">No other tutors available right now</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {availableTutors.map((tutor) => (
+                  <div
+                    key={tutor.id}
+                    className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-violet-500 flex items-center justify-center text-white font-bold text-sm">
+                        {tutor.name?.charAt(0) || 'T'}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">{tutor.name}</p>
+                        <p className="text-xs text-gray-500">{tutor.status}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleInviteTutor(tutor.id)}
+                      disabled={invitingTutorId === tutor.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500 hover:bg-violet-400 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {invitingTutorId === tutor.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <UserPlus className="w-3 h-3" />
+                      )}
+                      Invite
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 p-4">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Video, Pencil, ChevronUp, ChevronDown,
-  Share2, LogOut, Maximize2, Minimize2
+  Share2, Maximize2, Minimize2
 } from 'lucide-react';
 import {
   connectTutorSessionSocket,
@@ -17,7 +17,7 @@ import {
   onCallSignal,
   offCallSignal,
 } from '../../services/tutorSessionSocket';
-import { tutorSessionApi } from '../../api';
+// tutorSessionApi not needed - students cannot end sessions (403)
 import {
   DailyRoom,
   TutorStudentChatMessage,
@@ -167,17 +167,10 @@ export function StudentActiveSession({
     }
   }, [fullscreenMode]);
 
-  // End session
-  const handleEndSession = useCallback(async () => {
-    try {
-      await tutorSessionApi.endSession(tutorSessionId);
-      toast.success('Session ended successfully');
-      onEndSession?.();
-    } catch (error) {
-      console.error('Failed to end session:', error);
-      toast.error('Failed to end session');
-    }
-  }, [tutorSessionId, onEndSession]);
+  // Dismiss session ended banner
+  const handleDismiss = useCallback(() => {
+    onEndSession?.();
+  }, [onEndSession]);
 
 
   // If session ended, show minimal banner
@@ -194,7 +187,7 @@ export function StudentActiveSession({
             </div>
           </div>
           <button
-            onClick={handleEndSession}
+            onClick={handleDismiss}
             className="px-3 py-1.5 text-sm text-gray-400 hover:text-white rounded-lg transition-colors"
           >
             Dismiss
@@ -205,7 +198,7 @@ export function StudentActiveSession({
   }
 
   return (
-    <div className={`bg-[#1a1a1a] rounded-2xl border border-emerald-500/30 overflow-hidden shadow-lg shadow-emerald-500/10 ${className}`}>
+    <div className={`bg-[#1a1a1a] rounded-2xl border border-emerald-500/30 shadow-lg shadow-emerald-500/10 ${viewMode === 'whiteboard' ? 'overflow-visible' : 'overflow-hidden'} ${className}`}>
       {/* Main Banner - Always visible */}
       <div className="bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border-b border-emerald-500/20">
         <div className="flex items-center justify-between px-4 py-3">
@@ -269,14 +262,7 @@ export function StudentActiveSession({
               <Share2 className="w-5 h-5" />
             </button>
 
-            {/* End Session */}
-            <button
-              onClick={handleEndSession}
-              className="p-2 bg-red-500 hover:bg-red-400 text-white rounded-lg transition-colors"
-              title="End session"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
+            {/* End Session - HIDDEN for students (backend rejects with 403) */}
 
             {/* Minimize/Expand */}
             <button
@@ -303,7 +289,7 @@ export function StudentActiveSession({
 
       {/* Expanded Content */}
       {viewMode !== 'minimized' && (
-        <div className={`${fullscreenMode ? `fixed inset-4 z-50 bg-[#1a1a1a] rounded-2xl ${fullscreenMode === 'whiteboard' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col p-4` : 'p-4'}`}>
+        <div className={`${fullscreenMode ? `fixed inset-4 z-50 bg-[#1a1a1a] rounded-2xl ${fullscreenMode === 'whiteboard' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col p-4` : `p-4 ${viewMode === 'whiteboard' ? 'overflow-visible' : ''}`}`}>
           {/* Fullscreen Header */}
           {fullscreenMode && (
             <div className="flex items-center justify-between p-3 border-b border-gray-800 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 flex-shrink-0">

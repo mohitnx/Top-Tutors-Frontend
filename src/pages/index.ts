@@ -3,6 +3,7 @@ export { default as Landing } from './Landing';
 export { default as Login } from './Login';
 export { default as Register } from './Register';
 export { default as AcceptInvitation } from './AcceptInvitation';
+export { default as GoogleCallback } from './auth/GoogleCallback';
 
 // Student Pages
 export { default as StudentDashboard } from './student/StudentDashboard';

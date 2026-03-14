@@ -52,6 +52,11 @@ export interface SendMessageData {
   content: string;
   sessionId?: string;
   stream?: boolean;
+  deepThink?: boolean;
+  deepResearch?: boolean;
+  council?: boolean;
+  projectId?: string;
+  readAloud?: boolean;
 }
 
 export interface SendMessageResponse {
@@ -151,7 +156,8 @@ export const geminiChatApi = {
     files: File[],
     content?: string,
     sessionId?: string,
-    onUploadProgress?: (progress: number) => void
+    onUploadProgress?: (progress: number) => void,
+    options?: { deepThink?: boolean; deepResearch?: boolean; council?: boolean; projectId?: string; readAloud?: boolean }
   ): Promise<SendMessageResponse> => {
     const formData = new FormData();
 
@@ -165,6 +171,22 @@ export const geminiChatApi = {
 
     if (sessionId) {
       formData.append('sessionId', sessionId);
+    }
+
+    if (options?.deepThink) {
+      formData.append('deepThink', 'true');
+    }
+    if (options?.deepResearch) {
+      formData.append('deepResearch', 'true');
+    }
+    if (options?.council) {
+      formData.append('council', 'true');
+    }
+    if (options?.readAloud) {
+      formData.append('readAloud', 'true');
+    }
+    if (options?.projectId) {
+      formData.append('projectId', options.projectId);
     }
 
     const response = await api.post<SendMessageResponse>(
@@ -188,13 +210,30 @@ export const geminiChatApi = {
   sendAudioMessage: async (
     audio: File,
     sessionId?: string,
-    onUploadProgress?: (progress: number) => void
+    onUploadProgress?: (progress: number) => void,
+    options?: { deepThink?: boolean; deepResearch?: boolean; council?: boolean; projectId?: string; readAloud?: boolean }
   ): Promise<SendMessageResponse> => {
     const formData = new FormData();
     formData.append('audio', audio);
 
     if (sessionId) {
       formData.append('sessionId', sessionId);
+    }
+
+    if (options?.deepThink) {
+      formData.append('deepThink', 'true');
+    }
+    if (options?.deepResearch) {
+      formData.append('deepResearch', 'true');
+    }
+    if (options?.council) {
+      formData.append('council', 'true');
+    }
+    if (options?.readAloud) {
+      formData.append('readAloud', 'true');
+    }
+    if (options?.projectId) {
+      formData.append('projectId', options.projectId);
     }
 
     const response = await api.post<SendMessageResponse>(
@@ -213,6 +252,16 @@ export const geminiChatApi = {
       }
     );
     return unwrapData<SendMessageResponse>(response.data);
+  },
+
+  getAttachmentPreview: async (
+    messageId: string,
+    index: number
+  ): Promise<{ url: string; mimeType: string; name: string }> => {
+    const response = await api.get(
+      `/gemini-chat/messages/${messageId}/attachments/${index}/preview`
+    );
+    return unwrapData<{ url: string; mimeType: string; name: string }>(response.data);
   },
 
   retryMessage: async (messageId: string): Promise<SendMessageResponse> => {

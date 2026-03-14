@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, Mail, Building2 } from 'lucide-react';
-import { usersApi, schoolsApi } from '../../api';
+import { usersApi, schoolsApi, sectionsApi } from '../../api';
 import { School } from '../../api/schools';
-import { User, Role } from '../../types';
+import { User, Role, Subject, GroupedSectionsResponse } from '../../types';
 import { Spinner } from '../../components/ui/Loading';
 import { NoUsers } from '../../components/ui/EmptyState';
 import Button from '../../components/ui/Button';
@@ -76,7 +76,7 @@ export function AdminUsers() {
     fetchSchools();
   }, [page]);
 
-  const handleCreateUser = async (data: { name: string; email: string; role: string; schoolId?: string }) => {
+  const handleCreateUser = async (data: { name: string; email: string; role: string; schoolId?: string; sectionId?: string; subject?: string }) => {
     setIsSubmitting(true);
     try {
       await usersApi.createUser(data as Parameters<typeof usersApi.createUser>[0]);
@@ -329,10 +329,15 @@ const ADMIN_ROLE_INFO: Record<string, { description: string; needsSchool: 'requi
   ADMINISTRATOR: { description: 'A school administrator who manages their school', needsSchool: 'required' },
 };
 
-const ADMINISTRATOR_ROLE_INFO: Record<string, { description: string; needsSchool: 'none' }> = {
-  TEACHER: { description: 'A school teacher who uploads daily question papers', needsSchool: 'none' },
-  STUDENT: { description: 'A student who can ask questions and receive tutoring', needsSchool: 'none' },
+const ADMINISTRATOR_ROLE_INFO: Record<string, { description: string }> = {
+  TEACHER: { description: 'A school teacher who uploads daily question papers' },
+  STUDENT: { description: 'A student who receives daily academic packages' },
 };
+
+const SUBJECT_OPTIONS = Object.values(Subject).map(s => ({
+  value: s,
+  label: s.replace(/_/g, ' '),
+}));
 
 // ─── Create User Modal ───
 function CreateUserModal({
@@ -340,7 +345,7 @@ function CreateUserModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { name: string; email: string; role: string; schoolId?: string }) => void;
+  onSubmit: (data: { name: string; email: string; role: string; schoolId?: string; sectionId?: string; subject?: string }) => void;
   isLoading: boolean;
   schools: School[];
   isAdmin: boolean;
@@ -348,16 +353,48 @@ function CreateUserModal({
   const roleInfo = isAdmin ? ADMIN_ROLE_INFO : ADMINISTRATOR_ROLE_INFO;
   const defaultRole = isAdmin ? 'STUDENT' : 'TEACHER';
 
-  const [formData, setFormData] = useState({ name: '', email: '', role: defaultRole, schoolId: '' });
+  const [formData, setFormData] = useState({
+    name: '', email: '', role: defaultRole, schoolId: '',
+    sectionId: '', subject: 'MATHEMATICS',
+  });
+
+  // Sections for ADMINISTRATOR flow
+  const [groupedSections, setGroupedSections] = useState<GroupedSectionsResponse>({ grades: {}, total: 0 });
+  const [isLoadingSections, setIsLoadingSections] = useState(false);
 
   // Reset form on open
   useEffect(() => {
-    if (isOpen) setFormData({ name: '', email: '', role: defaultRole, schoolId: '' });
+    if (isOpen) {
+      setFormData({ name: '', email: '', role: defaultRole, schoolId: '', sectionId: '', subject: 'MATHEMATICS' });
+    }
   }, [isOpen]);
+
+  // Fetch sections when modal opens for ADMINISTRATOR
+  useEffect(() => {
+    if (isOpen && !isAdmin) {
+      setIsLoadingSections(true);
+      sectionsApi.getSections()
+        .then(setGroupedSections)
+        .catch(() => {})
+        .finally(() => setIsLoadingSections(false));
+    }
+  }, [isOpen, isAdmin]);
 
   const currentRoleInfo = roleInfo[formData.role];
   const showSchool = isAdmin && currentRoleInfo && 'needsSchool' in currentRoleInfo && (currentRoleInfo as { needsSchool: string }).needsSchool !== 'none';
   const schoolRequired = isAdmin && currentRoleInfo && 'needsSchool' in currentRoleInfo && (currentRoleInfo as { needsSchool: string }).needsSchool === 'required';
+
+  // For ADMINISTRATOR: TEACHER and STUDENT both need a section
+  const needsSection = !isAdmin && (formData.role === 'TEACHER' || formData.role === 'STUDENT');
+  const needsSubject = !isAdmin && formData.role === 'TEACHER';
+
+  // Flatten sections for the dropdown, grouped by grade
+  const sortedGrades = Object.keys(groupedSections.grades).sort((a, b) => {
+    const numA = parseInt(a);
+    const numB = parseInt(b);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.localeCompare(b);
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -365,7 +402,11 @@ function CreateUserModal({
       toast.error('School is required for this role');
       return;
     }
-    const data: { name: string; email: string; role: string; schoolId?: string } = {
+    if (needsSection && !formData.sectionId) {
+      toast.error('Please select a section. Create sections first from Grades & Sections page.');
+      return;
+    }
+    const data: { name: string; email: string; role: string; schoolId?: string; sectionId?: string; subject?: string } = {
       name: formData.name,
       email: formData.email,
       role: formData.role,
@@ -373,6 +414,13 @@ function CreateUserModal({
     // Only ADMIN sends schoolId; ADMINISTRATOR has it auto-filled by backend
     if (isAdmin && showSchool && formData.schoolId) {
       data.schoolId = formData.schoolId;
+    }
+    // ADMINISTRATOR sends sectionId + subject
+    if (needsSection) {
+      data.sectionId = formData.sectionId;
+    }
+    if (needsSubject) {
+      data.subject = formData.subject;
     }
     onSubmit(data);
   };
@@ -383,12 +431,12 @@ function CreateUserModal({
         {/* Role Selection */}
         <div>
           <label className="label">Role</label>
-          <div className={`grid gap-2 ${Object.keys(roleInfo).length > 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
+          <div className="grid gap-2 grid-cols-2">
             {Object.entries(roleInfo).map(([role, info]) => (
               <button
                 key={role}
                 type="button"
-                onClick={() => setFormData({ ...formData, role, schoolId: '' })}
+                onClick={() => setFormData({ ...formData, role, schoolId: '', sectionId: '', subject: 'MATHEMATICS' })}
                 className={`text-left p-3 rounded-lg border transition-all ${
                   formData.role === role
                     ? 'border-primary-500 bg-primary-500/10 ring-1 ring-primary-500'
@@ -421,6 +469,64 @@ function CreateUserModal({
           placeholder="e.g. john@school.edu"
         />
 
+        {/* Section Dropdown — ADMINISTRATOR creating TEACHER or STUDENT */}
+        {needsSection && (
+          <div>
+            <label className="label">
+              Section <span className="text-red-500">*</span>
+            </label>
+            {isLoadingSections ? (
+              <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+                <Spinner /> Loading sections...
+              </div>
+            ) : groupedSections.total === 0 ? (
+              <p className="text-xs text-amber-400 py-2">
+                No sections found. Go to <strong>Grades & Sections</strong> to create grades and sections first.
+              </p>
+            ) : (
+              <select
+                value={formData.sectionId}
+                onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}
+                className="input"
+                required
+              >
+                <option value="">Select a section</option>
+                {sortedGrades.map(grade => (
+                  <optgroup key={grade} label={`Grade ${grade}`}>
+                    {groupedSections.grades[grade].map(section => (
+                      <option key={section.id} value={section.id}>
+                        {section.name} ({section._count?.student_sections ?? 0} students)
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {/* Subject Dropdown — ADMINISTRATOR creating TEACHER */}
+        {needsSubject && (
+          <div>
+            <label className="label">
+              Subject <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={formData.subject}
+              onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+              className="input"
+              required
+            >
+              {SUBJECT_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              The teacher will be assigned to this subject in the selected section. You can add more sections later.
+            </p>
+          </div>
+        )}
+
         {/* School Dropdown — ADMIN only */}
         {showSchool && (
           <div>
@@ -450,6 +556,7 @@ function CreateUserModal({
           <p className="text-xs text-blue-400">
             An invitation email will be sent to <strong>{formData.email || 'the user'}</strong> to set their password.
             {!isAdmin && ' The user will be automatically linked to your school.'}
+            {!isAdmin && formData.role === 'STUDENT' && ' Students can only be in one section at a time.'}
           </p>
         </div>
 

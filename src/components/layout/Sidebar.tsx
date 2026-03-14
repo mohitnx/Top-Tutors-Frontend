@@ -31,7 +31,7 @@ const navItems: NavItem[] = [
   // Student
   {
     label: 'Dashboard',
-    path: '/dashboard/student',
+    path: '/chat',
     icon: <LayoutDashboard className="w-5 h-5" />,
     roles: [Role.STUDENT],
   },
@@ -97,7 +97,7 @@ const navItems: NavItem[] = [
   },
   // Administrator only - subjects/sections
   {
-    label: 'Subjects',
+    label: 'Grades & Sections',
     path: '/admin/sections',
     icon: <Layers className="w-5 h-5" />,
     roles: [Role.ADMINISTRATOR],

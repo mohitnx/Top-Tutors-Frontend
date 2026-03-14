@@ -11,6 +11,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   acceptInvitation: (token: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (roles: Role | Role[]) => boolean;
@@ -147,6 +148,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loginWithTokens = useCallback(async (accessToken: string, refreshToken: string) => {
+    setIsLoading(true);
+    try {
+      localStorage.setItem('accessToken', accessToken);
+      localStorage.setItem('refreshToken', refreshToken);
+      connectSocket(accessToken);
+      connectGeminiSocket(accessToken);
+
+      const userData = await authApi.getProfile();
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
+    } catch (error) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      disconnectSocket();
+      disconnectGeminiSocket();
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const acceptInvitation = useCallback(async (token: string, password: string) => {
     setIsLoading(true);
     try {
@@ -204,6 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated,
         login,
+        loginWithTokens,
         acceptInvitation,
         logout,
         hasRole,

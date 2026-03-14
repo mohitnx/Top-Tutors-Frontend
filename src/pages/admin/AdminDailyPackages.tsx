@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Image, Loader2, CheckCircle, XCircle, Clock, FileText, Calendar, Users, ChevronLeft, Layers, Eye, Award, Star, Hash, User } from 'lucide-react';
+import { Upload, Image, Loader2, CheckCircle, XCircle, Clock, FileText, Calendar, Users, ChevronLeft, Layers, Eye, Award, Star, Hash, User, RotateCcw } from 'lucide-react';
 import { sectionsApi, dailyPackageApi } from '../../api';
 import { ClassSection, Subject, DailyPackageUpload, DailyPackageStatus, DailyPackageUploadDetail, ExtractedQuestion } from '../../types';
 import { Spinner } from '../../components/ui/Loading';
@@ -31,6 +31,8 @@ export function AdminDailyPackages() {
 
   // Processing view (polling)
   const [processingStatus, setProcessingStatus] = useState<DailyPackageStatus>('PENDING');
+  const [currentUploadId, setCurrentUploadId] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Detail view
@@ -57,7 +59,9 @@ export function AdminDailyPackages() {
     setIsLoadingSections(true);
     try {
       const data = await sectionsApi.getSections();
-      setSections(data);
+      // Flatten grouped sections into array
+      const allSections = Object.values(data.grades).flat();
+      setSections(allSections);
     } catch {
       toast.error('Failed to load sections');
     } finally {
@@ -133,6 +137,7 @@ export function AdminDailyPackages() {
 
       // Switch to processing view and start polling
       setProcessingStatus('PENDING');
+      setCurrentUploadId(result.uploadId);
       setView('processing');
       startPolling(result.uploadId);
     } catch (error: unknown) {
@@ -195,6 +200,24 @@ export function AdminDailyPackages() {
     setSelectedImages([]);
     setImagePreviews([]);
     setUploadDetail(null);
+    setCurrentUploadId(null);
+  };
+
+  const handleRetry = async (uploadId: string) => {
+    setIsRetrying(true);
+    try {
+      const result = await dailyPackageApi.retryUpload(uploadId);
+      toast.success('Retry started!');
+      setProcessingStatus('PENDING');
+      setCurrentUploadId(result.uploadId);
+      setView('processing');
+      startPolling(result.uploadId);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'Failed to retry upload');
+    } finally {
+      setIsRetrying(false);
+    }
   };
 
   const getStatusBadge = (status: DailyPackageStatus) => {
@@ -255,7 +278,16 @@ export function AdminDailyPackages() {
             )}
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 flex items-center justify-center gap-3">
+            {processingStatus === 'FAILED' && currentUploadId && (
+              <Button
+                leftIcon={<RotateCcw className="w-4 h-4" />}
+                onClick={() => handleRetry(currentUploadId)}
+                isLoading={isRetrying}
+              >
+                Retry
+              </Button>
+            )}
             <Button variant="secondary" onClick={goBack}>
               {processingStatus === 'FAILED' ? 'Go Back' : 'Continue in Background'}
             </Button>
@@ -665,8 +697,19 @@ export function AdminDailyPackages() {
                       <Eye className="w-4 h-4" />
                     </button>
                   )}
-                  {upload.status === 'FAILED' && upload.errorMsg && (
-                    <span className="text-xs text-red-500" title={upload.errorMsg}>Error</span>
+                  {upload.status === 'FAILED' && (
+                    <>
+                      <button
+                        onClick={() => handleRetry(upload.id)}
+                        className="p-1.5 hover:bg-[#2c2d32] rounded-lg text-gray-500 hover:text-amber-400"
+                        title="Retry processing"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                      {upload.errorMsg && (
+                        <span className="text-xs text-red-500" title={upload.errorMsg}>Error</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

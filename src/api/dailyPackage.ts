@@ -37,6 +37,12 @@ export const dailyPackageApi = {
     const response = await api.get<DailyPackageUploadDetail>(`/daily-package/uploads/${id}`);
     return unwrapData<DailyPackageUploadDetail>(response.data);
   },
+
+  // Retry a failed upload - reprocesses images
+  retryUpload: async (id: string): Promise<UploadResponse> => {
+    const response = await api.post<UploadResponse>(`/daily-package/uploads/${id}/retry`);
+    return unwrapData<UploadResponse>(response.data);
+  },
 };
 
 export default dailyPackageApi;

@@ -9,6 +9,7 @@ import {
   UpdateProjectRequest,
   SendProjectMessageRequest,
   GenerateQuizRequest,
+  SessionResourceResponse,
 } from '../types';
 
 // ============================================
@@ -132,6 +133,14 @@ export const projectsApi = {
     return unwrapData<{ success: boolean }>(response.data);
   },
 
+  getResourcePreview: async (
+    projectId: string,
+    resourceId: string
+  ): Promise<{ url: string; mimeType: string; title: string }> => {
+    const response = await api.get(`/projects/${projectId}/resources/${resourceId}/preview`);
+    return unwrapData<{ url: string; mimeType: string; title: string }>(response.data);
+  },
+
   // =====================
   // Chat Sessions
   // =====================
@@ -182,12 +191,16 @@ export const projectsApi = {
     files: File[],
     content?: string,
     sessionId?: string,
-    onUploadProgress?: (progress: number) => void
+    onUploadProgress?: (progress: number) => void,
+    options?: { deepThink?: boolean; deepResearch?: boolean; councilMode?: boolean }
   ): Promise<SendMessageResponse> => {
     const formData = new FormData();
     files.forEach((file) => formData.append('files', file));
     if (content) formData.append('content', content);
     if (sessionId) formData.append('sessionId', sessionId);
+    if (options?.deepThink) formData.append('deepThink', 'true');
+    if (options?.deepResearch) formData.append('deepResearch', 'true');
+    if (options?.councilMode) formData.append('councilMode', 'true');
 
     const response = await api.post(
       `/projects/${projectId}/chat/messages/with-attachments`,
@@ -235,6 +248,92 @@ export const projectsApi = {
   ): Promise<GenerateQuizResponse> => {
     const response = await api.post(`/projects/${projectId}/quiz/generate`, data);
     return unwrapData<GenerateQuizResponse>(response.data);
+  },
+
+  generateQuizPdf: async (
+    projectId: string,
+    data: GenerateQuizRequest
+  ): Promise<Blob> => {
+    const token = localStorage.getItem('accessToken');
+    const baseURL = api.defaults.baseURL || '';
+    const res = await fetch(`${baseURL}/projects/${projectId}/quiz/generate/pdf`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => 'Failed to generate PDF');
+      throw new Error(errorText);
+    }
+    return res.blob();
+  },
+
+  // =====================
+  // Session Resources
+  // =====================
+
+  getSessionResources: async (
+    projectId: string,
+    sessionId: string
+  ): Promise<SessionResourceResponse[]> => {
+    const response = await api.get(
+      `/projects/${projectId}/chat/sessions/${sessionId}/resources`
+    );
+    return unwrapData<SessionResourceResponse[]>(response.data);
+  },
+
+  uploadSessionResource: async (
+    projectId: string,
+    sessionId: string,
+    file: File,
+    title: string,
+    onUploadProgress?: (progress: number) => void
+  ): Promise<SessionResourceResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('title', title);
+
+    const response = await api.post(
+      `/projects/${projectId}/chat/sessions/${sessionId}/resources`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          if (onUploadProgress && progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            onUploadProgress(progress);
+          }
+        },
+      }
+    );
+    return unwrapData<SessionResourceResponse>(response.data);
+  },
+
+  deleteSessionResource: async (
+    projectId: string,
+    _sessionId: string,
+    resourceId: string
+  ): Promise<{ success: boolean }> => {
+    // Same delete endpoint for both project-level and session-level resources
+    const response = await api.delete(
+      `/projects/${projectId}/resources/${resourceId}`
+    );
+    return unwrapData<{ success: boolean }>(response.data);
+  },
+
+  getSessionResourcePreview: async (
+    projectId: string,
+    _sessionId: string,
+    resourceId: string
+  ): Promise<{ url: string; mimeType: string; title: string }> => {
+    // Same preview endpoint for both project-level and session-level resources
+    const response = await api.get(
+      `/projects/${projectId}/resources/${resourceId}/preview`
+    );
+    return unwrapData<{ url: string; mimeType: string; title: string }>(response.data);
   },
 };
 

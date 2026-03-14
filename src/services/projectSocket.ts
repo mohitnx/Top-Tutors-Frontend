@@ -120,6 +120,46 @@ export const offProjectStreamChunk = (callback?: (chunk: ProjectStreamChunk) => 
 };
 
 // ============================================
+// Council Event Listeners
+// ============================================
+
+export const onProjectCouncilStatus = (callback: (data: any) => void): void => {
+  projectSocket?.on('councilStatus', callback);
+};
+
+export const offProjectCouncilStatus = (callback?: (data: any) => void): void => {
+  if (callback) {
+    projectSocket?.off('councilStatus', callback);
+  } else {
+    projectSocket?.off('councilStatus');
+  }
+};
+
+export const onProjectCouncilMemberComplete = (callback: (data: any) => void): void => {
+  projectSocket?.on('councilMemberComplete', callback);
+};
+
+export const offProjectCouncilMemberComplete = (callback?: (data: any) => void): void => {
+  if (callback) {
+    projectSocket?.off('councilMemberComplete', callback);
+  } else {
+    projectSocket?.off('councilMemberComplete');
+  }
+};
+
+export const onProjectCouncilSynthesisStart = (callback: (data: any) => void): void => {
+  projectSocket?.on('councilSynthesisStart', callback);
+};
+
+export const offProjectCouncilSynthesisStart = (callback?: (data: any) => void): void => {
+  if (callback) {
+    projectSocket?.off('councilSynthesisStart', callback);
+  } else {
+    projectSocket?.off('councilSynthesisStart');
+  }
+};
+
+// ============================================
 // Resource Event Listeners
 // ============================================
 

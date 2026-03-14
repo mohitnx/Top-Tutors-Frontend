@@ -79,7 +79,7 @@ export function AcceptInvitation() {
     const defaultPath = user.role === Role.TEACHER ? '/dashboard/teacher' :
                         user.role === Role.TUTOR ? '/dashboard/tutor' :
                         user.role === Role.ADMIN ? '/admin' :
-                        user.role === Role.ADMINISTRATOR ? '/admin' : '/dashboard/student';
+                        user.role === Role.ADMINISTRATOR ? '/admin' : '/chat';
     return <Navigate to={defaultPath} replace />;
   }
 

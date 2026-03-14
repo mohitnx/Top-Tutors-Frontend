@@ -12,6 +12,13 @@ import {
   TutorSessionCallSignal,
   NewHelpRequestEvent,
   CallSignalType,
+  TutorRequestProgressEvent,
+  TutorWaitStatusEvent,
+  TutorETAUpdateEvent,
+  SessionInviteEvent,
+  BusyTutorNotificationEvent,
+  TutorReminderEvent,
+  TutorSessionTakenEvent,
 } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
@@ -396,6 +403,73 @@ export const offError = (): void => {
 };
 
 // ============================================
+// New Events: Tutor Request Progress Flow
+// ============================================
+
+// Tutor Request Progress (Student receives during request flow)
+export const onTutorRequestProgress = (callback: (data: TutorRequestProgressEvent) => void): void => {
+  tutorSessionSocket?.on('tutorRequestProgress', callback);
+};
+
+export const offTutorRequestProgress = (): void => {
+  tutorSessionSocket?.off('tutorRequestProgress');
+};
+
+// Tutor Wait Status (ALL_BUSY or NO_TUTORS)
+export const onTutorWaitStatus = (callback: (data: TutorWaitStatusEvent) => void): void => {
+  tutorSessionSocket?.on('tutorWaitStatus', callback);
+};
+
+export const offTutorWaitStatus = (): void => {
+  tutorSessionSocket?.off('tutorWaitStatus');
+};
+
+// Tutor ETA Update (estimated wait time)
+export const onTutorETAUpdate = (callback: (data: TutorETAUpdateEvent) => void): void => {
+  tutorSessionSocket?.on('tutorETAUpdate', callback);
+};
+
+export const offTutorETAUpdate = (): void => {
+  tutorSessionSocket?.off('tutorETAUpdate');
+};
+
+// Session Invite (Tutor receives invite to join another session)
+export const onSessionInvite = (callback: (data: SessionInviteEvent) => void): void => {
+  tutorSessionSocket?.on('sessionInvite', callback);
+};
+
+export const offSessionInvite = (): void => {
+  tutorSessionSocket?.off('sessionInvite');
+};
+
+// Busy Tutor Notification (Tutor sees student waiting notification)
+export const onBusyTutorNotification = (callback: (data: BusyTutorNotificationEvent) => void): void => {
+  tutorSessionSocket?.on('busyTutorNotification', callback);
+};
+
+export const offBusyTutorNotification = (): void => {
+  tutorSessionSocket?.off('busyTutorNotification');
+};
+
+// Tutor Reminder (when estimated free time arrives)
+export const onTutorReminder = (callback: (data: TutorReminderEvent) => void): void => {
+  tutorSessionSocket?.on('tutorReminder', callback);
+};
+
+export const offTutorReminder = (): void => {
+  tutorSessionSocket?.off('tutorReminder');
+};
+
+// Session Taken (another tutor took the session - on /tutor-session namespace)
+export const onTutorSessionTaken = (callback: (data: TutorSessionTakenEvent) => void): void => {
+  tutorSessionSocket?.on('sessionTaken', callback);
+};
+
+export const offTutorSessionTaken = (): void => {
+  tutorSessionSocket?.off('sessionTaken');
+};
+
+// ============================================
 // Export default
 // ============================================
 
@@ -452,4 +526,19 @@ export default {
   offNewHelpRequest,
   onError,
   offError,
+  // New events
+  onTutorRequestProgress,
+  offTutorRequestProgress,
+  onTutorWaitStatus,
+  offTutorWaitStatus,
+  onTutorETAUpdate,
+  offTutorETAUpdate,
+  onSessionInvite,
+  offSessionInvite,
+  onBusyTutorNotification,
+  offBusyTutorNotification,
+  onTutorReminder,
+  offTutorReminder,
+  onTutorSessionTaken,
+  offTutorSessionTaken,
 };

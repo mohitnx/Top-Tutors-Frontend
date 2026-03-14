@@ -136,7 +136,7 @@ export function Conversations() {
           </div>
           {isStudent && (
             <Link 
-              to="/dashboard/student"
+              to="/chat"
               className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors text-sm"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -207,7 +207,7 @@ export function Conversations() {
             </p>
             {isStudent && (
               <Link
-                to="/dashboard/student"
+                to="/chat"
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors text-sm"
               >
                 <Plus className="w-3.5 h-3.5" />

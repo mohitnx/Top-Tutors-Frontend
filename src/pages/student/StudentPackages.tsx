@@ -44,7 +44,7 @@ export function StudentPackages() {
 
   // Only school-affiliated students can access packages
   if (!isSchoolAffiliated) {
-    return <Navigate to="/dashboard/student" replace />;
+    return <Navigate to="/chat" replace />;
   }
 
   const fetchDailyPackages = async () => {

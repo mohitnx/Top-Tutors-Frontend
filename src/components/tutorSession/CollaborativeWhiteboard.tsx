@@ -79,6 +79,19 @@ export function CollaborativeWhiteboard({
   const [isLoading, setIsLoading] = useState(true);
   const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
   const [debugInfo, setDebugInfo] = useState<string>('');
+  const [isMounted, setIsMounted] = useState(false);
+
+  // ⭐ Force Excalidraw to re-measure container after mount
+  useEffect(() => {
+    // Small delay to ensure DOM has painted before Excalidraw measures
+    const timer = setTimeout(() => {
+      setIsMounted(true);
+      // Dispatch resize event to force Excalidraw to recalculate canvas dimensions
+      window.dispatchEvent(new Event('resize'));
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   // ⭐ CRITICAL: Connect to socket and handle whiteboard events
   useEffect(() => {
@@ -470,7 +483,12 @@ export function CollaborativeWhiteboard({
       )}
 
       {/* Excalidraw Canvas */}
-      <div className="w-full flex-1" style={{ minHeight: readOnly ? '100%' : 'calc(100% - 48px)' }}>
+      <div className="w-full" style={{ height: readOnly ? '100%' : 'calc(100% - 40px)', position: 'relative' }}>
+        {!isMounted ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
         <Excalidraw
           excalidrawAPI={(api) => {
             excalidrawRef.current = api;
@@ -499,6 +517,7 @@ export function CollaborativeWhiteboard({
             },
           }}
         />
+        )}
       </div>
 
       {/* Remote Cursors */}

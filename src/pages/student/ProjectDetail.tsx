@@ -16,6 +16,15 @@ import {
   AlertCircle,
   Paperclip,
   X,
+  Brain,
+  Globe,
+  Users,
+  MessageSquare,
+  Download,
+  Mic,
+  Play,
+  Pause,
+  StopCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
@@ -26,9 +35,11 @@ import {
   ProjectMessageResponse,
   UpdateProjectRequest,
   GenerateQuizRequest,
+  SessionResourceResponse,
 } from '../../types';
 import { projectsApi } from '../../api/projects';
 import { useProjectChat } from '../../hooks/useProjectChat';
+import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import { Modal, ConfirmModal } from '../../components/ui/Modal';
 
 // ============================================
@@ -83,6 +94,10 @@ export default function ProjectDetail() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showResourcePanel, setShowResourcePanel] = useState(true);
   const [showSessionPanel] = useState(true);
+  const [previewData, setPreviewData] = useState<{ url: string; mimeType: string; title: string } | null>(null);
+  const [sessionResources, setSessionResources] = useState<SessionResourceResponse[]>([]);
+  const [isUploadingSessionResource, setIsUploadingSessionResource] = useState(false);
+  const sessionResourceFileInputRef = useRef<HTMLInputElement>(null);
 
   // Settings form
   const [settingsForm, setSettingsForm] = useState<UpdateProjectRequest>({});
@@ -93,6 +108,7 @@ export default function ProjectDetail() {
     quizType: 'MIXED',
     difficulty: 'MEDIUM',
   });
+  const [quizOutputFormat, setQuizOutputFormat] = useState<'chat' | 'pdf'>('chat');
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
 
   // Refs
@@ -100,6 +116,21 @@ export default function ProjectDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resourceFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Audio state
+  const [isAudioMode, setIsAudioMode] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const {
+    isRecording, isPaused, duration, audioUrl,
+    startRecording, stopRecording, pauseRecording, resumeRecording,
+    resetRecording, getAudioFile,
+  } = useAudioRecorder(300);
+
+  // Chat mode state
+  const [deepThinkEnabled, setDeepThinkEnabled] = useState(false);
+  const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
+  const [councilModeEnabled, setCouncilModeEnabled] = useState(false);
 
   // Chat hook
   const {
@@ -107,10 +138,55 @@ export default function ProjectDetail() {
     isWaitingForStream,
     streamingContent,
     streamingMessageId,
+    streamStatus,
+    councilAnalyzing,
+    councilExperts,
+    councilMembers,
+    isCrossReviewing,
+    isSynthesizing,
     sendMessage,
     sendMessageWithAttachments,
     addFeedback,
-  } = useProjectChat({ projectId: projectId || null, sessionId: activeSessionId });
+  } = useProjectChat({
+    projectId: projectId || null,
+    sessionId: activeSessionId,
+    onStreamEnd: (chunk) => {
+      // Persist the final AI message so it doesn't vanish
+      const finalContent = chunk.fullContent ?? '';
+      const aiMessage: ProjectMessageResponse = {
+        id: chunk.messageId,
+        sessionId: chunk.sessionId,
+        role: 'ASSISTANT',
+        content: finalContent,
+        attachments: null,
+        isStreaming: false,
+        isComplete: true,
+        hasError: false,
+        errorMessage: null,
+        feedback: null,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => {
+        // Replace temp/streaming version if exists, otherwise append
+        const exists = prev.find((m) => m.id === chunk.messageId);
+        if (exists) {
+          return prev.map((m) => m.id === chunk.messageId ? { ...m, content: finalContent, isStreaming: false, isComplete: true } : m);
+        }
+        return [...prev, aiMessage];
+      });
+    },
+  });
+
+  // Mode toggle handlers (mutually exclusive)
+  const handleDeepThinkToggle = () => {
+    setDeepThinkEnabled((prev) => { if (!prev) { setDeepResearchEnabled(false); setCouncilModeEnabled(false); } return !prev; });
+  };
+  const handleDeepResearchToggle = () => {
+    setDeepResearchEnabled((prev) => { if (!prev) { setDeepThinkEnabled(false); setCouncilModeEnabled(false); } return !prev; });
+  };
+  const handleCouncilModeToggle = () => {
+    setCouncilModeEnabled((prev) => { if (!prev) { setDeepThinkEnabled(false); setDeepResearchEnabled(false); } return !prev; });
+  };
 
   // ============================================
   // Data Fetching
@@ -148,18 +224,24 @@ export default function ProjectDetail() {
     fetchProject();
   }, [fetchProject]);
 
-  // Fetch messages when session changes
+  // Fetch messages and session resources when session changes
   useEffect(() => {
     if (!projectId || !activeSessionId) {
       setMessages([]);
+      setSessionResources([]);
       return;
     }
 
     const fetchMessages = async () => {
       try {
         setIsLoadingMessages(true);
-        const data = await projectsApi.getChatSession(projectId, activeSessionId);
+        const [data, sesResources] = await Promise.all([
+          projectsApi.getChatSession(projectId, activeSessionId),
+          projectsApi.getSessionResources(projectId, activeSessionId).catch(() => [] as SessionResourceResponse[]),
+        ]);
         setMessages(data.messages);
+        // Endpoint returns both project + session resources; keep only session-level
+        setSessionResources(sesResources.filter((r) => r.sessionId));
       } catch {
         toast.error('Failed to load messages');
       } finally {
@@ -191,10 +273,13 @@ export default function ProjectDetail() {
         'image/gif',
         'image/webp',
         'application/pdf',
+        'text/plain',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       ];
 
       if (!allowedTypes.includes(file.type)) {
-        toast.error(`${file.name}: Only images and PDFs are allowed`);
+        toast.error(`${file.name}: Only images, PDFs, and documents (.txt, .doc, .docx) are allowed`);
         continue;
       }
 
@@ -234,6 +319,80 @@ export default function ProjectDetail() {
       toast.success('File removed');
     } catch {
       toast.error('Failed to delete file');
+    }
+  };
+
+  const handlePreviewResource = async (resource: ProjectResourceResponse) => {
+    if (!projectId) return;
+    try {
+      const preview = await projectsApi.getResourcePreview(projectId, resource.id);
+      setPreviewData(preview);
+    } catch {
+      toast.error('Failed to load preview');
+    }
+  };
+
+  // ============================================
+  // Session Resource Upload
+  // ============================================
+
+  const handleSessionResourceUpload = async (files: FileList | null) => {
+    if (!files || !projectId || !activeSessionId) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const allowedTypes = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+        'application/pdf', 'text/plain', 'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ];
+
+      if (!allowedTypes.includes(file.type)) {
+        toast.error(`${file.name}: Only images, PDFs, and documents (.txt, .doc, .docx) are allowed`);
+        continue;
+      }
+
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error(`${file.name}: File too large (max 20MB)`);
+        continue;
+      }
+
+      try {
+        setIsUploadingSessionResource(true);
+        const title = file.name.replace(/\.[^/.]+$/, '');
+        const resource = await projectsApi.uploadSessionResource(
+          projectId, activeSessionId, file, title
+        );
+        setSessionResources((prev) => [...prev, resource]);
+        toast.success(`${file.name} uploaded to session`);
+      } catch (error: any) {
+        toast.error(error?.response?.data?.message || `Failed to upload ${file.name}`);
+      } finally {
+        setIsUploadingSessionResource(false);
+      }
+    }
+  };
+
+  const handleDeleteSessionResource = async (resourceId: string) => {
+    if (!projectId || !activeSessionId) return;
+    try {
+      await projectsApi.deleteSessionResource(projectId, activeSessionId, resourceId);
+      setSessionResources((prev) => prev.filter((r) => r.id !== resourceId));
+      toast.success('Session file removed');
+    } catch {
+      toast.error('Failed to delete session file');
+    }
+  };
+
+  const handlePreviewSessionResource = async (resource: SessionResourceResponse) => {
+    if (!projectId || !activeSessionId) return;
+    try {
+      const preview = await projectsApi.getSessionResourcePreview(
+        projectId, activeSessionId, resource.id
+      );
+      setPreviewData(preview);
+    } catch {
+      toast.error('Failed to load preview');
     }
   };
 
@@ -298,16 +457,23 @@ export default function ProjectDetail() {
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 
+    const modeOptions = {
+      deepThink: deepThinkEnabled || undefined,
+      deepResearch: deepResearchEnabled || undefined,
+      councilMode: councilModeEnabled || undefined,
+    };
+
     try {
       let response;
       if (currentFiles.length > 0) {
         response = await sendMessageWithAttachments(
           currentFiles,
           currentInput || undefined,
-          activeSessionId || undefined
+          activeSessionId || undefined,
+          modeOptions
         );
       } else {
-        response = await sendMessage(currentInput, activeSessionId || undefined);
+        response = await sendMessage(currentInput, activeSessionId || undefined, modeOptions);
       }
 
       // If this created a new session, update state
@@ -331,6 +497,81 @@ export default function ProjectDetail() {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  // ============================================
+  // Audio
+  // ============================================
+
+  const formatAudioDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleAudioClick = () => {
+    if (!isAudioMode) {
+      setIsAudioMode(true);
+      startRecording();
+    }
+  };
+
+  const handleAudioSend = async () => {
+    const audioFile = getAudioFile();
+    if (!audioFile || !projectId) return;
+
+    resetRecording();
+    setIsAudioMode(false);
+
+    const optimisticMsg: ProjectMessageResponse = {
+      id: `temp-audio-${Date.now()}`,
+      sessionId: activeSessionId || '',
+      role: 'USER',
+      content: 'Voice message',
+      attachments: null,
+      isStreaming: false,
+      isComplete: true,
+      hasError: false,
+      errorMessage: null,
+      feedback: null,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    const modeOptions = {
+      deepThink: deepThinkEnabled || undefined,
+      deepResearch: deepResearchEnabled || undefined,
+      councilMode: councilModeEnabled || undefined,
+    };
+
+    try {
+      const response = await sendMessageWithAttachments(
+        [audioFile],
+        undefined,
+        activeSessionId || undefined,
+        modeOptions
+      );
+      if (!activeSessionId && response.sessionId) {
+        setActiveSessionId(response.sessionId);
+        const sessionsData = await projectsApi.getChatSessions(projectId);
+        setSessions(sessionsData);
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to send voice message');
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
+    }
+  };
+
+  const handleCancelAudio = () => {
+    resetRecording();
+    setIsAudioMode(false);
+  };
+
+  const toggleAudioPlayback = () => {
+    if (!audioRef.current) return;
+    if (isPlayingAudio) audioRef.current.pause();
+    else audioRef.current.play();
+    setIsPlayingAudio(!isPlayingAudio);
   };
 
   // ============================================
@@ -382,22 +623,42 @@ export default function ProjectDetail() {
 
   const handleGenerateQuiz = async () => {
     if (!projectId) return;
-    if (resources.length === 0) {
+    if (resources.length === 0 && sessionResources.length === 0) {
       toast.error('Upload study materials before generating a quiz');
       return;
     }
 
+    const quizData = {
+      ...quizForm,
+      sessionId: quizForm.sessionId || undefined,
+    };
+
     try {
       setIsGeneratingQuiz(true);
-      const response = await projectsApi.generateQuiz(projectId, quizForm);
-      setShowQuizModal(false);
-      setActiveSessionId(response.sessionId);
 
-      // Refresh sessions
-      const sessionsData = await projectsApi.getChatSessions(projectId);
-      setSessions(sessionsData);
+      if (quizOutputFormat === 'pdf') {
+        const blob = await projectsApi.generateQuizPdf(projectId, quizData);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `quiz-${project?.title || 'project'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setShowQuizModal(false);
+        toast.success('Quiz PDF downloaded');
+      } else {
+        const response = await projectsApi.generateQuiz(projectId, quizData);
+        setShowQuizModal(false);
+        setActiveSessionId(response.sessionId);
 
-      toast.success('Quiz generation started');
+        // Refresh sessions
+        const sessionsData = await projectsApi.getChatSessions(projectId);
+        setSessions(sessionsData);
+
+        toast.success('Quiz generation started');
+      }
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to generate quiz');
     } finally {
@@ -480,7 +741,7 @@ export default function ProjectDetail() {
             <FileText className="w-4 h-4" />
           </button>
           <button
-            disabled={resources.length === 0}
+            disabled={resources.length === 0 && sessionResources.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 border border-amber-500/30 rounded-xl hover:from-amber-500/30 hover:to-orange-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={() => setShowQuizModal(true)}
           >
@@ -521,7 +782,7 @@ export default function ProjectDetail() {
             <input
               ref={resourceFileInputRef}
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+              accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp"
               multiple
               onChange={(e) => handleResourceUpload(e.target.files)}
               className="hidden"
@@ -545,13 +806,17 @@ export default function ProjectDetail() {
 
           {/* Resources List */}
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {/* Project-level resources */}
+            <div className="mb-2">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-gray-500 px-2">Project</span>
+            </div>
             {resources.length === 0 ? (
-              <div className="text-center py-8 px-3">
-                <FileText className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-                <p className="text-xs text-gray-500">No files yet</p>
+              <div className="text-center py-4 px-3">
+                <FileText className="w-6 h-6 text-gray-600 mx-auto mb-1" />
+                <p className="text-[10px] text-gray-500">No project files</p>
                 <button
                   onClick={() => resourceFileInputRef.current?.click()}
-                  className="text-xs text-violet-400 hover:text-violet-300 mt-2"
+                  className="text-[10px] text-violet-400 hover:text-violet-300 mt-1"
                 >
                   Upload files
                 </button>
@@ -560,7 +825,8 @@ export default function ProjectDetail() {
               resources.map((resource) => (
                 <div
                   key={resource.id}
-                  className="group flex items-start gap-2 p-2 rounded-lg hover:bg-gray-800/30 transition-colors"
+                  className="group flex items-start gap-2 p-2 rounded-lg hover:bg-gray-800/30 transition-colors cursor-pointer"
+                  onClick={() => handlePreviewResource(resource)}
                 >
                   <div className="flex-shrink-0 mt-0.5">
                     {resource.type === 'PDF' ? (
@@ -570,7 +836,7 @@ export default function ProjectDetail() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-300 truncate">{resource.title}</p>
+                    <p className="text-xs text-gray-300 truncate hover:text-violet-300 transition-colors">{resource.title}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] text-gray-600">
                         {formatFileSize(resource.fileSize)}
@@ -587,13 +853,82 @@ export default function ProjectDetail() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDeleteResource(resource.id)}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteResource(resource.id); }}
                     className="flex-shrink-0 p-1 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))
+            )}
+
+            {/* Session-level resources */}
+            {activeSessionId && (
+              <>
+                <div className="mt-3 mb-2 pt-2 border-t border-gray-800/50">
+                  <div className="flex items-center justify-between px-2">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-gray-500">Session</span>
+                    <button
+                      onClick={() => sessionResourceFileInputRef.current?.click()}
+                      disabled={isUploadingSessionResource}
+                      className="p-1 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 rounded transition-colors disabled:opacity-40"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <input
+                    ref={sessionResourceFileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp"
+                    multiple
+                    onChange={(e) => handleSessionResourceUpload(e.target.files)}
+                    className="hidden"
+                  />
+                  {isUploadingSessionResource && (
+                    <div className="w-full bg-gray-800 rounded-full h-1 mt-1 mx-2">
+                      <div className="bg-violet-500 h-1 rounded-full animate-pulse" style={{ width: '60%' }} />
+                    </div>
+                  )}
+                </div>
+                {sessionResources.length === 0 ? (
+                  <div className="text-center py-3 px-3">
+                    <p className="text-[10px] text-gray-500">No session files</p>
+                  </div>
+                ) : (
+                  sessionResources.map((resource) => (
+                    <div
+                      key={resource.id}
+                      className="group flex items-start gap-2 p-2 rounded-lg hover:bg-gray-800/30 transition-colors cursor-pointer"
+                      onClick={() => handlePreviewSessionResource(resource)}
+                    >
+                      <div className="flex-shrink-0 mt-0.5">
+                        {resource.type === 'PDF' ? (
+                          <FileText className="w-4 h-4 text-red-400" />
+                        ) : (
+                          <ImageIcon className="w-4 h-4 text-blue-400" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-300 truncate hover:text-violet-300 transition-colors">{resource.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-gray-600">
+                            {formatFileSize(resource.fileSize)}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400">
+                            Session
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteSessionResource(resource.id); }}
+                        className="flex-shrink-0 p-1 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </>
             )}
           </div>
         </div>
@@ -623,16 +958,27 @@ export default function ProjectDetail() {
               sessions.map((session) => (
                 <div key={session.id} className="group relative">
                   <button
-                    onClick={() => setActiveSessionId(session.id)}
+                    onClick={() => {
+                      if (session.source === 'llm-chat') {
+                        navigate(`/chat?session=${session.id}`);
+                      } else {
+                        setActiveSessionId(session.id);
+                      }
+                    }}
                     className={`w-full text-left px-2.5 py-2 rounded-lg transition-all ${
                       activeSessionId === session.id
                         ? 'bg-violet-500/10 border border-violet-500/20'
                         : 'hover:bg-gray-800/50'
                     }`}
                   >
-                    <p className="text-xs text-gray-300 truncate">
-                      {session.title || 'New Chat'}
-                    </p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-xs text-gray-300 truncate flex-1">
+                        {session.title || 'New Chat'}
+                      </p>
+                      {session.source === 'llm-chat' && (
+                        <span title="From LLM Chat"><MessageSquare className="w-3 h-3 text-amber-400 flex-shrink-0" /></span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] text-gray-600">
                         {session.messageCount || 0} msgs
@@ -698,6 +1044,45 @@ export default function ProjectDetail() {
                   />
                 ))}
 
+                {/* Council Progress UI */}
+                {councilAnalyzing && (
+                  <div className="bg-[#1a1a1a] border border-gray-800/50 rounded-xl px-4 py-3 space-y-2">
+                    {(councilExperts || []).map((expert) => {
+                      const completed = councilMembers.find((m) => m.memberId === expert.id);
+                      return (
+                        <div key={expert.id} className="flex items-start gap-2">
+                          <span className="text-[10px] font-medium text-violet-400 w-16 flex-shrink-0 pt-0.5">{expert.label}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-300">{expert.name}</span>
+                              {completed ? (
+                                <span className="text-[10px] text-green-400">Done ({completed.confidence}% confident)</span>
+                              ) : (
+                                <span className="text-[10px] text-yellow-400 animate-pulse">Analyzing...</span>
+                              )}
+                            </div>
+                            {completed && (
+                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{completed.content.substring(0, 120)}...</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {isCrossReviewing && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-gray-800/50">
+                        <div className="w-2 h-2 bg-violet-400 rounded-full animate-pulse" />
+                        <span className="text-xs text-gray-400">Experts are reviewing each other's work...</span>
+                      </div>
+                    )}
+                    {isSynthesizing && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-gray-800/50">
+                        <div className="w-2 h-2 bg-violet-400 rounded-full animate-pulse" />
+                        <span className="text-xs text-gray-400">Synthesizing all perspectives...</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Streaming AI Message (new, not in messages array yet) */}
                 {(isStreaming || isWaitingForStream) &&
                   !messages.find((m) => m.id === streamingMessageId) && (
@@ -717,7 +1102,7 @@ export default function ProjectDetail() {
                               <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                               <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                             </div>
-                            <span className="text-xs text-gray-500">Thinking...</span>
+                            <span className="text-xs text-gray-500">{streamStatus || 'Thinking...'}</span>
                           </div>
                         )}
                       </div>
@@ -751,17 +1136,186 @@ export default function ProjectDetail() {
 
           {/* Message Input */}
           <div className="p-4 border-t border-gray-800/50">
+            {/* Audio Recording Panel */}
+            {isAudioMode && isRecording && (
+              <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-sm text-red-400 font-medium">
+                      {isPaused ? 'Paused' : 'Recording...'}
+                    </span>
+                    <span className="text-sm text-gray-400 font-mono">
+                      {formatAudioDuration(duration)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isPaused ? (
+                      <button
+                        onClick={resumeRecording}
+                        className="p-1.5 text-green-400 hover:text-green-300 bg-green-500/10 rounded-lg transition-colors"
+                        title="Resume"
+                      >
+                        <Play className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={pauseRecording}
+                        className="p-1.5 text-yellow-400 hover:text-yellow-300 bg-yellow-500/10 rounded-lg transition-colors"
+                        title="Pause"
+                      >
+                        <Pause className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={stopRecording}
+                      className="p-1.5 text-red-400 hover:text-red-300 bg-red-500/10 rounded-lg transition-colors"
+                      title="Stop recording"
+                    >
+                      <StopCircle className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleCancelAudio}
+                      className="p-1.5 text-gray-400 hover:text-white bg-gray-700/50 rounded-lg transition-colors"
+                      title="Cancel"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                {/* Waveform placeholder */}
+                <div className="mt-2 flex items-center gap-0.5 h-6">
+                  {Array.from({ length: 30 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-1 rounded-full ${isPaused ? 'bg-gray-600' : 'bg-red-400/60'}`}
+                      style={{
+                        height: `${Math.random() * 20 + 4}px`,
+                        transition: 'height 0.3s',
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Audio Playback/Review Panel */}
+            {isAudioMode && audioUrl && !isRecording && (
+              <div className="mb-3 p-3 bg-violet-500/10 border border-violet-500/30 rounded-xl">
+                <audio
+                  ref={audioRef}
+                  src={audioUrl}
+                  onEnded={() => setIsPlayingAudio(false)}
+                  className="hidden"
+                />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={toggleAudioPlayback}
+                      className="p-2 bg-violet-500/20 hover:bg-violet-500/30 rounded-full text-violet-400 transition-colors"
+                    >
+                      {isPlayingAudio ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </button>
+                    <span className="text-sm text-gray-300">
+                      Voice message ({formatAudioDuration(duration)})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { resetRecording(); startRecording(); }}
+                      className="px-2.5 py-1 text-xs text-gray-400 hover:text-white bg-gray-700/50 rounded-lg transition-colors"
+                    >
+                      Re-record
+                    </button>
+                    <button
+                      onClick={handleCancelAudio}
+                      className="p-1.5 text-gray-400 hover:text-white bg-gray-700/50 rounded-lg transition-colors"
+                      title="Discard"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={handleAudioSend}
+                      disabled={isStreaming || isWaitingForStream}
+                      className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg transition-colors"
+                    >
+                      <Send className="w-3 h-3" />
+                      Send
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Mode toggles */}
+            <div className="flex items-center gap-1 mb-2">
+              <div className="relative">
+                <button
+                  onClick={handleDeepThinkToggle}
+                  disabled={isStreaming || isWaitingForStream}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50 ${
+                    deepThinkEnabled
+                      ? 'text-blue-400 bg-blue-500/15 border border-blue-500/30'
+                      : 'text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 border border-transparent'
+                  }`}
+                  title="Deep Think - Extended reasoning"
+                >
+                  <Brain className="w-3.5 h-3.5" />
+                  <span>Think</span>
+                </button>
+                {deepThinkEnabled && !isStreaming && !isWaitingForStream && (
+                  <button onClick={() => setDeepThinkEnabled(false)} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-blue-500/30 text-blue-300 hover:bg-blue-500/50 flex items-center justify-center">
+                    <X className="w-2 h-2" />
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={handleDeepResearchToggle}
+                  disabled={isStreaming || isWaitingForStream}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50 ${
+                    deepResearchEnabled
+                      ? 'text-green-400 bg-green-500/15 border border-green-500/30'
+                      : 'text-gray-500 hover:text-green-400 hover:bg-green-500/10 border border-transparent'
+                  }`}
+                  title="Deep Research - Web research"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Research</span>
+                </button>
+                {deepResearchEnabled && !isStreaming && !isWaitingForStream && (
+                  <button onClick={() => setDeepResearchEnabled(false)} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-green-500/30 text-green-300 hover:bg-green-500/50 flex items-center justify-center">
+                    <X className="w-2 h-2" />
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={handleCouncilModeToggle}
+                  disabled={isStreaming || isWaitingForStream}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50 ${
+                    councilModeEnabled
+                      ? 'text-violet-400 bg-violet-500/15 border border-violet-500/30'
+                      : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 border border-transparent'
+                  }`}
+                  title="Council Mode - Multi-expert analysis"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Council</span>
+                </button>
+                {councilModeEnabled && !isStreaming && !isWaitingForStream && (
+                  <button onClick={() => setCouncilModeEnabled(false)} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-violet-500/30 text-violet-300 hover:bg-violet-500/50 flex items-center justify-center">
+                    <X className="w-2 h-2" />
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-end gap-2 bg-[#1a1a1a] border border-gray-700/50 rounded-xl px-3 py-2 focus-within:border-violet-500/50 transition-colors">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="p-1.5 text-gray-500 hover:text-violet-400 transition-colors flex-shrink-0 mb-0.5"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.gif,.webp"
+                accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp"
                 multiple
                 onChange={(e) => {
                   if (e.target.files) {
@@ -771,6 +1325,7 @@ export default function ProjectDetail() {
                 }}
                 className="hidden"
               />
+             
               <textarea
                 ref={textareaRef}
                 value={messageInput}
@@ -784,13 +1339,15 @@ export default function ProjectDetail() {
                 placeholder="Type your question..."
                 className="flex-1 bg-transparent text-white placeholder-gray-500 text-sm resize-none focus:outline-none min-h-[36px] max-h-[120px] py-1.5"
                 rows={1}
-                disabled={isStreaming || isWaitingForStream}
+                disabled={isStreaming || isWaitingForStream || isAudioMode}
               />
+             
               <button
                 onClick={handleSendMessage}
                 disabled={
                   isStreaming ||
                   isWaitingForStream ||
+                  isAudioMode ||
                   (!messageInput.trim() && attachedFiles.length === 0)
                 }
                 className="p-1.5 text-violet-400 hover:text-violet-300 disabled:text-gray-600 transition-colors flex-shrink-0 mb-0.5"
@@ -907,7 +1464,7 @@ export default function ProjectDetail() {
         title="Generate Quiz"
       >
         <div className="space-y-5">
-          {resources.length === 0 ? (
+          {resources.length === 0 && sessionResources.length === 0 ? (
             <div className="flex items-center gap-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
               <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
               <p className="text-sm text-yellow-300">
@@ -916,6 +1473,40 @@ export default function ProjectDetail() {
             </div>
           ) : (
             <>
+              {/* Scope toggle */}
+              {activeSessionId && (
+                <div>
+                  <label className="label">Quiz Scope</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setQuizForm({ ...quizForm, sessionId: undefined })}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        !quizForm.sessionId
+                          ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30'
+                          : 'bg-gray-800/50 text-gray-400 border border-gray-700/50 hover:text-white'
+                      }`}
+                    >
+                      Entire Project
+                    </button>
+                    <button
+                      onClick={() => setQuizForm({ ...quizForm, sessionId: activeSessionId })}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        quizForm.sessionId
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                          : 'bg-gray-800/50 text-gray-400 border border-gray-700/50 hover:text-white'
+                      }`}
+                    >
+                      This Session
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {quizForm.sessionId
+                      ? 'Quiz based on this session\'s conversation and resources only.'
+                      : 'Quiz based on all project materials and conversations.'}
+                  </p>
+                </div>
+              )}
+
               {/* Question Count */}
               <div>
                 <label className="label">Number of Questions</label>
@@ -985,9 +1576,37 @@ export default function ProjectDetail() {
                 </div>
               </div>
 
+              {/* Output Format */}
+              <div>
+                <label className="label">Output Format</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setQuizOutputFormat('chat')}
+                    className={`flex items-center gap-2 flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      quizOutputFormat !== 'pdf'
+                        ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30'
+                        : 'bg-gray-800/50 text-gray-400 border border-gray-700/50 hover:text-white'
+                    }`}
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    In Chat
+                  </button>
+                  <button
+                    onClick={() => setQuizOutputFormat('pdf')}
+                    className={`flex items-center gap-2 flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      quizOutputFormat === 'pdf'
+                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                        : 'bg-gray-800/50 text-gray-400 border border-gray-700/50 hover:text-white'
+                    }`}
+                  >
+                    <Download className="w-4 h-4" />
+                    Download PDF
+                  </button>
+                </div>
+              </div>
+
               <p className="text-xs text-gray-500">
-                Quiz will be based on your {resources.length} uploaded study material
-                {resources.length !== 1 ? 's' : ''}.
+                Quiz will be based on {quizForm.sessionId ? 'this session\'s' : `your ${resources.length} uploaded`} study material{resources.length !== 1 && !quizForm.sessionId ? 's' : ''}.
               </p>
             </>
           )}
@@ -998,10 +1617,10 @@ export default function ProjectDetail() {
             </button>
             <button
               onClick={handleGenerateQuiz}
-              disabled={isGeneratingQuiz || resources.length === 0}
+              disabled={isGeneratingQuiz || (resources.length === 0 && sessionResources.length === 0)}
               className="btn-primary"
             >
-              {isGeneratingQuiz ? 'Generating...' : 'Generate Quiz'}
+              {isGeneratingQuiz ? 'Generating...' : quizOutputFormat === 'pdf' ? 'Download PDF' : 'Generate Quiz'}
             </button>
           </div>
         </div>
@@ -1017,6 +1636,44 @@ export default function ProjectDetail() {
         confirmText="Delete"
         variant="danger"
       />
+
+      {/* Resource Preview Modal */}
+      {previewData && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setPreviewData(null)}
+        >
+          <div
+            className="relative w-full max-w-4xl max-h-[90vh] mx-4 bg-[#1a1a1a] rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <h3 className="text-sm font-medium text-white truncate">{previewData.title}</h3>
+              <button
+                onClick={() => setPreviewData(null)}
+                className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto flex items-center justify-center p-4 min-h-0">
+              {previewData.mimeType.startsWith('image/') ? (
+                <img
+                  src={previewData.url}
+                  alt={previewData.title}
+                  className="max-w-full max-h-[75vh] object-contain rounded-lg"
+                />
+              ) : (
+                <iframe
+                  src={previewData.url}
+                  title={previewData.title}
+                  className="w-full h-[75vh] rounded-lg border-0"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

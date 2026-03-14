@@ -7,6 +7,8 @@ export interface CreateUserData {
   name: string;
   role: 'ADMINISTRATOR' | 'TEACHER' | 'TUTOR' | 'STUDENT';
   schoolId?: string;
+  sectionId?: string;  // Required for TEACHER and STUDENT
+  subject?: string;    // Required for TEACHER
 }
 
 export interface BulkCreateUsersData {

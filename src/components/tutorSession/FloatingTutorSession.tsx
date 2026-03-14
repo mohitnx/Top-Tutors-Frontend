@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic, MicOff, Video, VideoOff,
-  Monitor, MonitorOff, Minimize2, X, Send, User
+  Monitor, MonitorOff, Minimize2, Send, User
 } from 'lucide-react';
 import Daily from '@daily-co/daily-js';
 import {
@@ -15,7 +15,6 @@ import {
   onSessionStatusChanged,
   offSessionStatusChanged,
 } from '../../services/tutorSessionSocket';
-import { tutorSessionApi } from '../../api';
 import { DailyRoom, TutorStudentChatMessage } from '../../types';
 import toast from 'react-hot-toast';
 
@@ -231,15 +230,8 @@ export function FloatingTutorSession({
     }
   }, [sendMessage]);
 
-  const endSession = useCallback(async () => {
-    try {
-      await tutorSessionApi.endSession(tutorSessionId);
-      onClose();
-    } catch (error) {
-      console.error('Failed to end session:', error);
-      toast.error('Failed to end session');
-    }
-  }, [tutorSessionId, onClose]);
+  // Students cannot end sessions (backend rejects with 403)
+  // The session is closed by the tutor or when session status changes to COMPLETED
 
   const formatTime = (date: string) => {
     return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -278,12 +270,6 @@ export function FloatingTutorSession({
             className="p-1 text-gray-400 hover:text-white rounded transition-colors"
           >
             <Minimize2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={endSession}
-            className="p-1 text-gray-400 hover:text-red-400 rounded transition-colors"
-          >
-            <X className="w-4 h-4" />
           </button>
         </div>
       </div>

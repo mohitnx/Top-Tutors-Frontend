@@ -276,6 +276,35 @@ export const offCouncilSynthesisStart = (callback?: (data: CouncilSynthesisStart
 };
 
 // ============================================
+// Stream Reconnection
+// ============================================
+
+export interface ReconnectStreamResponse {
+  success: boolean;
+  content?: string;
+  complete?: boolean;
+  messageId?: string;
+  sessionId?: string;
+  mode?: 'single' | 'deep-think' | 'deep-research' | 'council';
+  thinkingTrace?: string[];
+  provider?: string;
+  isStreaming?: boolean;
+  hasError?: boolean;
+  errorMessage?: string;
+}
+
+export const reconnectStream = (
+  data: { messageId?: string; sessionId?: string },
+  callback: (response: ReconnectStreamResponse) => void
+): void => {
+  if (geminiSocket?.connected) {
+    geminiSocket.emit('reconnectStream', data, callback);
+  } else {
+    callback({ success: false });
+  }
+};
+
+// ============================================
 // Typing Indicator
 // ============================================
 

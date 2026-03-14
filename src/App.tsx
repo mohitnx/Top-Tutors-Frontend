@@ -13,6 +13,7 @@ import {
   Login,
   Register,
   AcceptInvitation,
+  GoogleCallback,
   StudentDashboard,
   StudentPackages,
   ProjectsList,
@@ -87,6 +88,20 @@ function App() {
           {/* Accept Invitation - Public, standalone page */}
           <Route path="/accept-invitation" element={<AcceptInvitation />} />
 
+          {/* Google OAuth Callback */}
+          <Route path="/auth/google/callback" element={<GoogleCallback />} />
+
+          {/* LLM Chat - accessible by all roles except ADMIN */}
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={[Role.STUDENT, Role.TEACHER, Role.TUTOR, Role.ADMINISTRATOR]}>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/chat" element={<StudentDashboard />} />
+          </Route>
+
           {/* Student Routes */}
           <Route
             element={
@@ -95,11 +110,21 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="/dashboard/student" element={<StudentDashboard />} />
+            <Route path="/dashboard/student" element={<Navigate to="/chat" replace />} />
             <Route path="/student/packages" element={<StudentPackages />} />
+            <Route path="/ask" element={<Navigate to="/chat" replace />} />
+          </Route>
+
+          {/* Projects - accessible by Student, Teacher, Tutor */}
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={[Role.STUDENT, Role.TEACHER, Role.TUTOR]}>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
             <Route path="/projects" element={<ProjectsList />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />
-            <Route path="/ask" element={<Navigate to="/dashboard/student" replace />} />
           </Route>
 
           {/* Teacher Routes */}
@@ -188,7 +213,7 @@ function App() {
           <Route path="/shared/:shareToken" element={<SharedConversation />} />
 
           {/* Redirects */}
-          <Route path="/dashboard" element={<Navigate to="/dashboard/student" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/chat" replace />} />
 
           {/* 404 */}
           <Route element={<AuthLayout />}>
