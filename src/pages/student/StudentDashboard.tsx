@@ -364,6 +364,7 @@ function MessageBubble({
   isLastAssistant,
   thinkingTrace,
   streamMode,
+  statusText,
   onRetry,
   onFeedback,
   onAttachmentPreview,
@@ -379,6 +380,7 @@ function MessageBubble({
   isCouncilMode?: boolean;
   thinkingTrace?: string[];
   streamMode?: string | null;
+  statusText?: string | null;
   onRetry?: () => void;
   onFeedback?: (feedback: 'GOOD' | 'BAD') => void;
   onAttachmentPreview?: (messageId: string, index: number) => void;
@@ -479,6 +481,14 @@ function MessageBubble({
             )
           )}
 
+          {/* Status text when streaming with no content (e.g. report generation) */}
+          {isStreaming && !content && statusText && (
+            <div className="flex items-center gap-2 text-sm text-gray-400 py-1">
+              <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />
+              <span>{statusText}</span>
+            </div>
+          )}
+
           {isStreaming && (
             <span className="inline-block ml-1 animate-breathe">
               <svg width="16" height="16" viewBox="0 0 200 200" fill="none">
@@ -497,16 +507,29 @@ function MessageBubble({
 
         {/* Report PDF download */}
         {!isUser && !isStreaming && message.reportDownload && (
-          <a
-            href={message.reportDownload.downloadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            download={message.reportDownload.filename}
-            className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-300 rounded-xl text-sm font-medium transition-colors"
+          <button
+            type="button"
+            onClick={() => {
+              const { downloadUrl, filename } = message.reportDownload!;
+              fetch(downloadUrl)
+                .then((res) => res.blob())
+                .then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                })
+                .catch(() => window.open(downloadUrl, '_blank'));
+            }}
+            className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-300 rounded-xl text-sm font-medium transition-colors cursor-pointer"
           >
             <Download className="w-4 h-4" />
             {message.reportDownload.filename}
-          </a>
+          </button>
         )}
 
         {/* Feedback / error actions */}
@@ -622,7 +645,7 @@ export function StudentDashboard() {
 
   // Gemini chat hook
   const {
-    isStreaming, isWaitingForStream, streamingContent,
+    isStreaming, isWaitingForStream, streamingContent, streamUx,
     thinkingTrace, streamMode, streamSources, streamProvider,
     councilAnalyzing, councilExperts, councilMembers, isSynthesizing,
     prepareForRetry, reconnectToStream, sendMessage, sendMessageWithAttachments,
@@ -1343,6 +1366,7 @@ export function StudentDashboard() {
                   streamingContent={streamingContent}
                   thinkingTrace={thinkingTrace}
                   streamMode={streamMode}
+                  statusText={streamUx.statusText}
                   councilAnalyzing={councilAnalyzing}
                   councilExperts={councilExperts}
                   councilMembers={councilMembers}
