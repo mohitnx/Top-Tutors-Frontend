@@ -21,7 +21,6 @@ import {
   Users,
   MessageSquare,
   Download,
-  Mic,
   Play,
   Pause,
   StopCircle,
@@ -509,12 +508,7 @@ export default function ProjectDetail() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleAudioClick = () => {
-    if (!isAudioMode) {
-      setIsAudioMode(true);
-      startRecording();
-    }
-  };
+
 
   const handleAudioSend = async () => {
     const audioFile = getAudioFile();
