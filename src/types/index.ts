@@ -855,6 +855,7 @@ export interface StreamChunk {
   };
   streamId?: string;
   cancelled?: boolean;
+  stalled?: boolean;
 }
 
 // Council Mode Events

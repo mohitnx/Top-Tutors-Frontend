@@ -220,7 +220,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
     return date.toLocaleDateString();
   };
 
-  const SidebarContent = () => (
+  const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-gray-800/50">
@@ -408,7 +408,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
           </button>
 
           {showUserMenu && (
-            <div className={`absolute ${isCollapsed ? 'left-full ml-2' : 'left-0 right-0'} bottom-full mb-1 bg-[#1a1a1a] border border-gray-800 rounded-xl shadow-2xl py-1 z-50`}>
+            <div className={`absolute ${isCollapsed ? 'left-full ml-2' : 'left-0 right-0'} bottom-full mb-1 bg-[#1a1a1a] border border-gray-800 rounded-xl shadow-2xl py-1 z-50 min-w-[140px]`}>
               <NavLink
                 to="/profile"
                 onClick={() => { setShowUserMenu(false); setIsMobileOpen(false); }}
@@ -485,7 +485,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
           isCollapsed ? 'w-14' : 'w-60'
         }`}
       >
-        <SidebarContent />
+        {sidebarContent}
         {/* Toggle Arrow */}
         <button
           onClick={onToggleCollapse}
@@ -502,7 +502,7 @@ export function ClaudeSidebar({ isCollapsed = false, onToggleCollapse }: ClaudeS
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <SidebarContent />
+        {sidebarContent}
       </aside>
 
       {/* Scrollbar hide style */}

@@ -18,7 +18,16 @@ export function GoogleCallback() {
       loginWithTokens(accessToken, refreshToken)
         .then(() => {
           toast.success('Welcome!');
-          navigate('/', { replace: true });
+          try {
+            const stored = localStorage.getItem('user');
+            const role = stored ? JSON.parse(stored).role : null;
+            const path = role === 'TEACHER' ? '/dashboard/teacher' :
+                         role === 'TUTOR' ? '/dashboard/tutor' :
+                         role === 'ADMIN' || role === 'ADMINISTRATOR' ? '/admin' : '/chat';
+            navigate(path, { replace: true });
+          } catch {
+            navigate('/chat', { replace: true });
+          }
         })
         .catch(() => {
           setError('Failed to complete sign in. Please try again.');

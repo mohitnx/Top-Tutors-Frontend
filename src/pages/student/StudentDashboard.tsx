@@ -256,31 +256,36 @@ function ModeToggle({ mode, onChange, disabled }: {
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center bg-[#1a1a1a] rounded-xl border border-gray-800 p-0.5">
-      <button
-        onClick={() => onChange('SINGLE')}
-        disabled={disabled}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-          mode === 'SINGLE'
-            ? 'bg-violet-500/20 text-violet-300'
-            : 'text-gray-500 hover:text-gray-300'
-        }`}
-      >
-        <Zap className="w-3 h-3" />
-        Single AI
-      </button>
-      <button
-        onClick={() => onChange('COUNCIL')}
-        disabled={disabled}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-          mode === 'COUNCIL'
-            ? 'bg-violet-500/20 text-violet-300'
-            : 'text-gray-500 hover:text-gray-300'
-        }`}
-      >
-        <Users className="w-3 h-3" />
-        AI Council
-      </button>
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="flex items-center bg-[#1a1a1a] rounded-xl border border-gray-800 p-0.5">
+        <button
+          onClick={() => onChange('SINGLE')}
+          disabled={disabled}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            mode === 'SINGLE'
+              ? 'bg-violet-500/20 text-violet-300'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <Zap className="w-3 h-3" />
+          Single AI
+        </button>
+        <button
+          onClick={() => onChange('COUNCIL')}
+          disabled={disabled}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            mode === 'COUNCIL'
+              ? 'bg-violet-500/20 text-violet-300'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <Users className="w-3 h-3" />
+          AI Council
+        </button>
+      </div>
+      <p className="text-[10px] text-gray-500">
+        {mode === 'SINGLE' ? 'One AI responds to your questions' : '3 AI experts deliberate and give the best answer'}
+      </p>
     </div>
   );
 }
@@ -366,6 +371,7 @@ function MessageBubble({
   onRetry,
   onFeedback,
   onAttachmentPreview,
+  onImagePreview,
 }: {
   message: AIMessage;
   isStreaming?: boolean;
@@ -382,6 +388,7 @@ function MessageBubble({
   onRetry?: () => void;
   onFeedback?: (feedback: 'GOOD' | 'BAD') => void;
   onAttachmentPreview?: (messageId: string, index: number) => void;
+  onImagePreview?: (data: { url: string; mimeType: string; name: string }) => void;
 }) {
   const isUser = message.role === 'USER';
   const content = isStreaming ? streamingContent : message.content;
@@ -405,7 +412,13 @@ function MessageBubble({
                 <button
                   key={i}
                   type="button"
-                  onClick={() => onAttachmentPreview?.(message.id, i)}
+                  onClick={() => {
+                    if (att.url && (att.type.startsWith('image/') || att.type === 'image')) {
+                      onImagePreview?.({ url: att.url, mimeType: att.type, name: att.name });
+                    } else {
+                      onAttachmentPreview?.(message.id, i);
+                    }
+                  }}
                   className="relative group cursor-pointer hover:opacity-80 transition-opacity"
                 >
                   {att.type.startsWith('image/') || att.type === 'image' ? (
@@ -484,6 +497,12 @@ function MessageBubble({
             <div className="flex items-center gap-2 text-sm text-gray-400 py-1">
               <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />
               <span>{statusText}</span>
+              {onRetry && statusText.includes('retry') && (
+                <button onClick={onRetry} className="ml-2 flex items-center gap-1 px-2.5 py-1 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors">
+                  <RotateCcw className="w-3 h-3" />
+                  Retry
+                </button>
+              )}
             </div>
           )}
 
@@ -684,8 +703,8 @@ export function StudentDashboard() {
     },
     onStreamEnd: (chunk) => {
       setIsCancelling(false);
-      // Read the full answer aloud if readAloud was enabled for this message
-      if (chunk.readAloud) {
+      // Read the full answer aloud if readAloud was enabled and not cancelled
+      if (chunk.readAloud && !chunk.cancelled) {
         const answerText = chunk.fullContent ?? streamingContent ?? '';
         if (answerText) speakAnswer(answerText);
       }
@@ -1020,10 +1039,15 @@ export function StudentDashboard() {
     };
 
     try {
+      let result;
       if (files.length > 0) {
-        await sendMessageWithAttachments(files, messageContent, currentSessionId || undefined, sendOptions);
+        result = await sendMessageWithAttachments(files, messageContent, currentSessionId || undefined, sendOptions);
       } else {
-        await sendMessage(messageContent, currentSessionId || undefined, sendOptions);
+        result = await sendMessage(messageContent, currentSessionId || undefined, sendOptions);
+      }
+      if (!result) {
+        toast.error('Failed to send message. Please try again.');
+        setStreamingMessage(null);
       }
     } catch {
       toast.error('Failed to send message');
@@ -1363,6 +1387,7 @@ export function StudentDashboard() {
                         onRetry={() => handleRetry(msg.id)}
                         onFeedback={(feedback) => handleFeedback(msg.id, feedback)}
                         onAttachmentPreview={handleAttachmentPreview}
+                        onImagePreview={(data) => setPreviewData(data)}
                       />
                     )}
                   </div>
@@ -1452,7 +1477,7 @@ export function StudentDashboard() {
                   }}
                 />
                 <div className="flex items-center gap-1 px-2 pb-2">
-                  <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple onChange={handleFileSelect} className="hidden" />
+                  <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,.pdf,.txt,.doc,.docx" multiple onChange={handleFileSelect} className="hidden" />
 
                   {isRecording || isAudioMode ? (
                     /* ── RECORDING MODE: full-width controls ── */
@@ -1477,6 +1502,14 @@ export function StudentDashboard() {
                         )}
                       </div>
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={handleAudioClick}
+                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Cancel audio"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
                         {isRecording && (
                           <button
                             type="button"
@@ -1487,14 +1520,6 @@ export function StudentDashboard() {
                             <Send className="w-5 h-5" />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={handleAudioClick}
-                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
-                          title="Cancel audio"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
                       </div>
                     </div>
                   ) : (
@@ -1858,6 +1883,7 @@ export function StudentDashboard() {
 }
 
 export default StudentDashboard;
+
 
 
 

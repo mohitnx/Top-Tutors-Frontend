@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -22,6 +22,14 @@ export default function ProjectsList() {
   const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Debounce search
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchQuery]);
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -40,7 +48,7 @@ export default function ProjectsList() {
   const fetchProjects = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await projectsApi.getProjects({ search: searchQuery || undefined });
+      const response = await projectsApi.getProjects({ search: debouncedSearch || undefined });
       setProjects(response.projects);
     } catch (error) {
       console.error('Failed to fetch projects:', error);
@@ -48,7 +56,7 @@ export default function ProjectsList() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     fetchProjects();
@@ -117,27 +125,28 @@ export default function ProjectsList() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="max-w-6xl mx-auto px-4 py-6 pl-14 lg:pl-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-white">My Projects</h1>
-        <div className="flex items-center gap-3">
-          <div className="relative">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="relative flex-1 sm:flex-initial">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               type="text"
               placeholder="Search projects..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-4 py-2 text-sm bg-[#1a1a1a] border border-gray-700/50 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500/50 w-64"
+              className="pl-9 pr-4 py-2 text-sm bg-[#1a1a1a] border border-gray-700/50 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500/50 w-full sm:w-64"
             />
           </div>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-xl hover:from-violet-500 hover:to-fuchsia-500 transition-all text-sm font-medium"
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-500 transition-colors text-sm font-medium whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
-            New Project
+            <span className="hidden sm:inline">New Project</span>
+            <span className="sm:hidden">New</span>
           </button>
         </div>
       </div>
@@ -167,12 +176,12 @@ export default function ProjectsList() {
         </div>
       ) : (
         /* Project Cards Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {projects.map((project) => (
             <div
               key={project.id}
               onClick={() => navigate(`/projects/${project.id}`)}
-              className="group relative bg-[#1a1a1a] border border-gray-800/50 rounded-xl p-5 hover:border-violet-500/30 hover:bg-[#1e1e1e] transition-all cursor-pointer"
+              className="group relative bg-[#1a1a1a] border border-gray-800/50 rounded-xl p-4 sm:p-5 hover:border-violet-500/30 hover:bg-[#1e1e1e] transition-all cursor-pointer"
             >
               {/* Title & Description */}
               <div className="mb-4">

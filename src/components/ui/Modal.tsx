@@ -58,7 +58,7 @@ export function Modal({
       onClick={handleOverlayClick}
     >
       <div
-        className={`w-full ${sizeClasses[size]} bg-[#25262b] border border-gray-700/50 rounded shadow-lg animate-slide-up`}
+        className={`w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto bg-[#25262b] border border-gray-700/50 rounded shadow-lg animate-slide-up`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'modal-title' : undefined}

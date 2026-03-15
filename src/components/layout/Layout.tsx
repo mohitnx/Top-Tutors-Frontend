@@ -10,7 +10,7 @@ interface LayoutProps {
 
 // Layout with dark sidebar, role-aware content background
 export function Layout({ showSidebar = true }: LayoutProps) {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const { user } = useAuth();
 
   // Students get dark bg (Claude-style chat), everyone else gets modern dark bg
@@ -31,7 +31,7 @@ export function Layout({ showSidebar = true }: LayoutProps) {
           showSidebar
             ? isSidebarCollapsed
               ? 'lg:ml-14'
-              : 'lg:ml-56'
+              : 'lg:ml-60'
             : ''
         }`}
       >

@@ -713,7 +713,7 @@ export default function ProjectDetail() {
   return (
     <div className="flex flex-col h-[calc(100vh-0px)]">
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/50 bg-[#0f0f0f] flex-shrink-0">
+      <div className="flex items-center justify-between px-4 pl-12 lg:pl-4 py-3 border-b border-gray-800/50 bg-[#0f0f0f] flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/projects')}
@@ -1429,7 +1429,7 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-4 border-t border-gray-700/50">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-gray-700/50">
             <button
               onClick={() => {
                 setShowSettingsModal(false);
@@ -1440,10 +1440,10 @@ export default function ProjectDetail() {
               Delete Project
             </button>
             <div className="flex gap-3">
-              <button onClick={() => setShowSettingsModal(false)} className="btn-secondary">
+              <button onClick={() => setShowSettingsModal(false)} className="btn-secondary flex-1 sm:flex-initial">
                 Cancel
               </button>
-              <button onClick={handleSaveSettings} className="btn-primary">
+              <button onClick={handleSaveSettings} className="btn-primary flex-1 sm:flex-initial">
                 Save Changes
               </button>
             </div>
