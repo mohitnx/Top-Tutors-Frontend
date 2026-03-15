@@ -336,10 +336,8 @@ function ThinkingTrace({ trace, mode, isActive }: {
             key={i}
             className={`flex items-center gap-1.5 py-0.5 animate-fadeIn ${isDone ? 'text-gray-500' : cfg.color}`}
           >
-            {isDone ? (
+            {isDone && (
               <Check className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-            ) : (
-              <Loader2 className={`w-3 h-3 ${cfg.color} animate-spin flex-shrink-0`} />
             )}
             <span>{step}</span>
           </div>
@@ -638,6 +636,11 @@ export function StudentDashboard() {
   const [selectedProjectTitle, setSelectedProjectTitle] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [isTextareaFocused, setIsTextareaFocused] = useState(false);
+  const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
   const [previewData, setPreviewData] = useState<{ url: string; mimeType: string; name: string } | null>(null);
 
   // Streaming message state
@@ -908,20 +911,6 @@ export function StudentDashboard() {
   }, [user]);
 
   // Deep Think / Deep Research toggle handlers (mutually exclusive, disabled in council)
-  const handleDeepThinkToggle = () => {
-    if (currentMode === 'COUNCIL') return;
-    setDeepThinkEnabled((prev) => {
-      if (!prev) setDeepResearchEnabled(false);
-      return !prev;
-    });
-  };
-  const handleDeepResearchToggle = () => {
-    if (currentMode === 'COUNCIL') return;
-    setDeepResearchEnabled((prev) => {
-      if (!prev) setDeepThinkEnabled(false);
-      return !prev;
-    });
-  };
 
   const handleProjectSelect = (project: ProjectResponse | null) => {
     if (project) {
@@ -933,6 +922,19 @@ export function StudentDashboard() {
     }
     setShowProjectDropdown(false);
   };
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) setShowModeDropdown(false);
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setShowAttachMenu(false);
+        setShowProjectDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const handleAttachmentPreview = async (messageId: string, index: number) => {
     try {
@@ -1431,7 +1433,9 @@ export function StudentDashboard() {
                   rows={1}
                   disabled={isSubmitting || isStreaming}
                   readOnly={isRecording}
-                  className={`w-full p-4 pb-2 bg-transparent resize-none focus:outline-none text-[16px] text-[#faf9f5] placeholder-gray-500 min-h-[56px] max-h-[200px] ${isRecording ? 'placeholder-violet-400/60' : ''}`}
+                  onFocus={() => setIsTextareaFocused(true)}
+                  onBlur={() => setTimeout(() => setIsTextareaFocused(false), 150)}
+                  className={`w-full p-3 md:p-4 pb-1.5 md:pb-2 bg-transparent resize-none focus:outline-none text-[16px] text-[#faf9f5] placeholder-gray-500 max-h-[200px] ${isRecording ? 'placeholder-violet-400/60' : ''} ${isTextareaFocused || input.trim() ? 'min-h-[56px]' : 'min-h-[40px] md:min-h-[56px]'}`}
                   style={{ fontWeight: 360, height: 'auto' }}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
@@ -1439,200 +1443,245 @@ export function StudentDashboard() {
                     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
                   }}
                 />
-                <div className="flex items-center justify-end gap-1 px-2 pb-2">
-                  {/* Deep Think toggle */}
-                  {currentMode !== 'COUNCIL' && (
-                    <div className="relative flex items-center">
-                      <button
-                        type="button"
-                        onClick={handleDeepThinkToggle}
-                        disabled={isSubmitting || isStreaming || isWaitingForStream}
-                        className={`p-2 rounded-xl transition-colors disabled:opacity-50 ${
-                          deepThinkEnabled
-                            ? 'text-blue-400 bg-blue-500/15'
-                            : 'text-gray-500 hover:text-blue-400 hover:bg-blue-500/10'
-                        }`}
-                        title="Deep Think - Extended reasoning"
-                      >
-                        <Brain className="w-5 h-5" />
-                      </button>
-                      {deepThinkEnabled && !isStreaming && !isSubmitting && (
-                        <button
-                          type="button"
-                          onClick={() => setDeepThinkEnabled(false)}
-                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-blue-500/30 text-blue-300 hover:bg-blue-500/50 flex items-center justify-center"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {/* Deep Research toggle */}
-                  {currentMode !== 'COUNCIL' && (
-                    <div className="relative flex items-center">
-                      <button
-                        type="button"
-                        onClick={handleDeepResearchToggle}
-                        disabled={isSubmitting || isStreaming || isWaitingForStream}
-                        className={`p-2 rounded-xl transition-colors disabled:opacity-50 ${
-                          deepResearchEnabled
-                            ? 'text-green-400 bg-green-500/15'
-                            : 'text-gray-500 hover:text-green-400 hover:bg-green-500/10'
-                        }`}
-                        title="Deep Research - Web research"
-                      >
-                        <Globe className="w-5 h-5" />
-                      </button>
-                      {deepResearchEnabled && !isStreaming && !isSubmitting && (
-                        <button
-                          type="button"
-                          onClick={() => setDeepResearchEnabled(false)}
-                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-green-500/30 text-green-300 hover:bg-green-500/50 flex items-center justify-center"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {/* Project context selector */}
-                  {[Role.STUDENT, Role.TEACHER, Role.TUTOR].includes(user?.role as Role) && (
-                    <div className="relative flex items-center">
-                      <button
-                        type="button"
-                        onClick={() => setShowProjectDropdown((prev) => !prev)}
-                        disabled={isSubmitting || isStreaming || isWaitingForStream}
-                        className={`p-2 rounded-xl transition-colors disabled:opacity-50 ${
-                          selectedProjectId
-                            ? 'text-violet-400 bg-violet-500/15'
-                            : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
-                        }`}
-                        title={selectedProjectTitle ? `Project: ${selectedProjectTitle}` : 'Attach project context'}
-                      >
-                        <FolderOpen className="w-5 h-5" />
-                      </button>
-                      {selectedProjectId && !isStreaming && !isSubmitting && (
-                        <button
-                          type="button"
-                          onClick={() => handleProjectSelect(null)}
-                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-violet-500/30 text-violet-300 hover:bg-violet-500/50 flex items-center justify-center"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      )}
-                      {showProjectDropdown && (
-                        <div className="absolute bottom-full mb-2 right-0 w-64 max-h-60 overflow-y-auto bg-[#1e1e1e] border border-gray-700 rounded-xl shadow-2xl z-50">
-                          <div className="p-2">
-                            {selectedProjectId && (
-                              <button
-                                type="button"
-                                onClick={() => handleProjectSelect(null)}
-                                className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition-colors"
-                              >
-                                Clear selection
-                              </button>
-                            )}
-                            {projects.filter((p) => !p.isArchived).length === 0 ? (
-                              <div className="px-3 py-4 text-sm text-gray-500 text-center">
-                                No projects yet. Create one from the Projects page.
-                              </div>
-                            ) : (
-                              projects.filter((p) => !p.isArchived).map((project) => (
-                                <button
-                                  key={project.id}
-                                  type="button"
-                                  onClick={() => handleProjectSelect(project)}
-                                  className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                                    selectedProjectId === project.id
-                                      ? 'bg-violet-500/20 text-violet-300'
-                                      : 'text-gray-300 hover:bg-gray-800'
-                                  }`}
-                                >
-                                  <div className="font-medium truncate">{project.title}</div>
-                                  {project.description && (
-                                    <div className="text-xs text-gray-500 truncate mt-0.5">{project.description}</div>
-                                  )}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                <div className="flex items-center gap-1 px-2 pb-2">
                   <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple onChange={handleFileSelect} className="hidden" />
-                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isSubmitting || isStreaming || isWaitingForStream} className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-30" title="Attach files">
-                    <Paperclip className="w-5 h-5" />
-                  </button>
+
                   {isRecording || isAudioMode ? (
-                    <div className="flex items-center gap-0.5">
-                      {/* Animated bars while recording */}
-                      {isRecording && (
-                        <div className="flex items-center gap-[2px] h-5 px-1">
-                          {[...Array(4)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="w-[3px] rounded-full bg-gradient-to-t from-violet-500 to-fuchsia-500"
-                              style={{
-                                height: `${Math.random() * 14 + 6}px`,
-                                animation: `audioBar 0.4s ease-in-out ${i * 0.1}s infinite alternate`,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {/* Stop & send button */}
-                      {isRecording && (
+                    /* ── RECORDING MODE: full-width controls ── */
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-2">
+                        {isRecording && (
+                          <div className="flex items-center gap-[2px] h-5 px-1">
+                            {[...Array(4)].map((_, i) => (
+                              <div
+                                key={i}
+                                className="w-[3px] rounded-full bg-gradient-to-t from-violet-500 to-fuchsia-500"
+                                style={{
+                                  height: `${Math.random() * 14 + 6}px`,
+                                  animation: `audioBar 0.4s ease-in-out ${i * 0.1}s infinite alternate`,
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {isRecording && (
+                          <span className="text-xs text-violet-400/70">Listening...</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {isRecording && (
+                          <button
+                            type="button"
+                            onClick={() => { if (speechRecRef.current) speechRecRef.current.stop(); if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current); stopRecording(); }}
+                            className="p-2 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 rounded-lg transition-colors"
+                            title="Stop & send"
+                          >
+                            <Send className="w-5 h-5" />
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => { if (speechRecRef.current) speechRecRef.current.stop(); if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current); stopRecording(); }}
-                          className="p-1.5 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 rounded-lg transition-colors"
-                          title="Stop & send"
+                          onClick={handleAudioClick}
+                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Cancel audio"
                         >
-                          <Send className="w-4 h-4" />
+                          <X className="w-5 h-5" />
                         </button>
-                      )}
-                      {/* Cancel button */}
-                      <button
-                        type="button"
-                        onClick={handleAudioClick}
-                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
-                        title="Cancel audio"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      </div>
                     </div>
                   ) : (
-                    <button type="button" onClick={handleAudioClick} disabled={isSubmitting || isStreaming || isWaitingForStream} className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-30" title="Record voice">
-                      <Mic className="w-5 h-5" />
-                    </button>
-                  )}
-                  {!activeTutorSession && user?.role === Role.STUDENT && (
-                    <button type="button" onClick={handleOpenTutorPanel} disabled={isSubmitting || isStreaming || isWaitingForStream || !currentSessionId} className="p-2 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors disabled:opacity-30" title="Talk to a human tutor">
-                      <UserPlus className="w-5 h-5" />
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || isStreaming || isWaitingForStream || (!input.trim() && attachments.length === 0)}
-                    className={`p-2 rounded-xl transition-all relative ${
-                      isSubmitting || isStreaming || isWaitingForStream
-                        ? 'bg-gray-800 text-violet-400'
-                        : input.trim() || attachments.length > 0
-                          ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90'
-                          : 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                    }`}
-                  >
-                    {isSubmitting || isStreaming || isWaitingForStream ? (
-                      <div className="relative w-5 h-5">
-                        <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="opacity-20" />
-                          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                        </svg>
+                    /* ── NORMAL MODE: all toolbar buttons ── */
+                    <>
+                      {/* Left side: mode dropdown + attach */}
+                      <div className="flex items-center gap-0.5">
+                        {/* Mode dropdown (Deep Think / Deep Research) */}
+                        {currentMode !== 'COUNCIL' && (
+                          <div className="relative" ref={modeDropdownRef}>
+                            <button
+                              type="button"
+                              onClick={() => { setShowModeDropdown(prev => !prev); setShowAttachMenu(false); }}
+                              disabled={isSubmitting || isStreaming || isWaitingForStream}
+                              className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-medium transition-colors disabled:opacity-50 ${
+                                deepThinkEnabled
+                                  ? 'text-blue-400 bg-blue-500/15'
+                                  : deepResearchEnabled
+                                    ? 'text-green-400 bg-green-500/15'
+                                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                              }`}
+                            >
+                              {deepThinkEnabled ? <Brain className="w-4 h-4" /> : deepResearchEnabled ? <Globe className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                              <span className="hidden sm:inline">{deepThinkEnabled ? 'Think' : deepResearchEnabled ? 'Research' : 'Mode'}</span>
+                              <ChevronDown className="w-3 h-3" />
+                            </button>
+                            {showModeDropdown && (
+                              <div className="absolute bottom-full mb-2 left-0 w-48 bg-[#1e1e1e] border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => { setDeepThinkEnabled(false); setDeepResearchEnabled(false); setShowModeDropdown(false); }}
+                                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
+                                    !deepThinkEnabled && !deepResearchEnabled ? 'bg-violet-500/15 text-violet-300' : 'text-gray-300 hover:bg-gray-800'
+                                  }`}
+                                >
+                                  <Sparkles className="w-4 h-4 text-violet-400" />
+                                  <div className="text-left">
+                                    <div className="font-medium">Normal</div>
+                                    <div className="text-[10px] text-gray-500">Standard response</div>
+                                  </div>
+                                  {!deepThinkEnabled && !deepResearchEnabled && <Check className="w-3.5 h-3.5 ml-auto text-violet-400" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setDeepThinkEnabled(true); setDeepResearchEnabled(false); setShowModeDropdown(false); }}
+                                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
+                                    deepThinkEnabled ? 'bg-blue-500/15 text-blue-300' : 'text-gray-300 hover:bg-gray-800'
+                                  }`}
+                                >
+                                  <Brain className="w-4 h-4 text-blue-400" />
+                                  <div className="text-left">
+                                    <div className="font-medium">Deep Think</div>
+                                    <div className="text-[10px] text-gray-500">Extended reasoning</div>
+                                  </div>
+                                  {deepThinkEnabled && <Check className="w-3.5 h-3.5 ml-auto text-blue-400" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setDeepResearchEnabled(true); setDeepThinkEnabled(false); setShowModeDropdown(false); }}
+                                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
+                                    deepResearchEnabled ? 'bg-green-500/15 text-green-300' : 'text-gray-300 hover:bg-gray-800'
+                                  }`}
+                                >
+                                  <Globe className="w-4 h-4 text-green-400" />
+                                  <div className="text-left">
+                                    <div className="font-medium">Deep Research</div>
+                                    <div className="text-[10px] text-gray-500">Web search + synthesis</div>
+                                  </div>
+                                  {deepResearchEnabled && <Check className="w-3.5 h-3.5 ml-auto text-green-400" />}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Attachment button with popover (files + project) */}
+                        <div className="relative" ref={attachMenuRef}>
+                          <button
+                            type="button"
+                            onClick={() => { setShowAttachMenu(prev => !prev); setShowModeDropdown(false); }}
+                            disabled={isSubmitting || isStreaming || isWaitingForStream}
+                            className={`relative p-2 rounded-xl transition-colors disabled:opacity-30 ${
+                              selectedProjectId || attachments.length > 0
+                                ? 'text-violet-400 bg-violet-500/10'
+                                : 'text-gray-500 hover:text-violet-400 hover:bg-violet-500/10'
+                            }`}
+                            title="Attach"
+                          >
+                            <Paperclip className="w-5 h-5" />
+                            {(selectedProjectId || attachments.length > 0) && (
+                              <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-violet-400" />
+                            )}
+                          </button>
+                          {showAttachMenu && (
+                            <div className="absolute bottom-full mb-2 left-0 w-64 bg-[#1e1e1e] border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                              {/* Add from computer */}
+                              <button
+                                type="button"
+                                onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+                              >
+                                <Paperclip className="w-4 h-4 text-gray-400" />
+                                Add from computer
+                              </button>
+                              {/* Project section */}
+                              {[Role.STUDENT, Role.TEACHER, Role.TUTOR].includes(user?.role as Role) && (
+                                <>
+                                  <div className="border-t border-gray-700/50" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowProjectDropdown(prev => !prev)}
+                                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
+                                      selectedProjectId ? 'text-violet-300 bg-violet-500/10' : 'text-gray-300 hover:bg-gray-800'
+                                    }`}
+                                  >
+                                    <FolderOpen className="w-4 h-4 text-violet-400" />
+                                    <span className="flex-1 text-left truncate">
+                                      {selectedProjectTitle ? `Project: ${selectedProjectTitle}` : 'Attach project'}
+                                    </span>
+                                    {selectedProjectId ? (
+                                      <X className="w-3.5 h-3.5 text-gray-500 hover:text-red-400" onClick={(e) => { e.stopPropagation(); handleProjectSelect(null); }} />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                                    )}
+                                  </button>
+                                  {showProjectDropdown && (
+                                    <div className="border-t border-gray-700/30 max-h-48 overflow-y-auto">
+                                      {projects.filter((p) => !p.isArchived).length === 0 ? (
+                                        <div className="px-3 py-3 text-xs text-gray-500 text-center">No projects yet</div>
+                                      ) : (
+                                        projects.filter((p) => !p.isArchived).map((project) => (
+                                          <button
+                                            key={project.id}
+                                            type="button"
+                                            onClick={() => { handleProjectSelect(project); setShowAttachMenu(false); }}
+                                            className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                                              selectedProjectId === project.id
+                                                ? 'bg-violet-500/20 text-violet-300'
+                                                : 'text-gray-300 hover:bg-gray-800'
+                                            }`}
+                                          >
+                                            <div className="font-medium truncate text-xs">{project.title}</div>
+                                            {project.description && (
+                                              <div className="text-[10px] text-gray-500 truncate mt-0.5">{project.description}</div>
+                                            )}
+                                          </button>
+                                        ))
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    ) : (
-                      <Send className="w-5 h-5" />
-                    )}
-                  </button>
+
+                      {/* Spacer */}
+                      <div className="flex-1" />
+
+                      {/* Right side: audio, tutor, send */}
+                      <div className="flex items-center gap-0.5">
+                        <button type="button" onClick={handleAudioClick} disabled={isSubmitting || isStreaming || isWaitingForStream} className="p-2 text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-xl transition-colors disabled:opacity-30" title="Record voice">
+                          <Mic className="w-5 h-5" />
+                        </button>
+                        {!activeTutorSession && user?.role === Role.STUDENT && (
+                          <button type="button" onClick={handleOpenTutorPanel} disabled={isSubmitting || isStreaming || isWaitingForStream || !currentSessionId} className={`p-2 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors disabled:opacity-30 ${isTextareaFocused ? '' : 'hidden md:flex'}`} title="Talk to a human tutor">
+                            <UserPlus className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button
+                          type="submit"
+                          disabled={isSubmitting || isStreaming || isWaitingForStream || (!input.trim() && attachments.length === 0)}
+                          className={`p-2 rounded-xl transition-all relative ${
+                            isSubmitting || isStreaming || isWaitingForStream
+                              ? 'bg-gray-800 text-violet-400'
+                              : input.trim() || attachments.length > 0
+                                ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90'
+                                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                          }`}
+                        >
+                          {isSubmitting || isStreaming || isWaitingForStream ? (
+                            <div className="relative w-5 h-5">
+                              <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="opacity-20" />
+                                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <Send className="w-5 h-5" />
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
