@@ -651,7 +651,7 @@ export function StudentDashboard() {
     isStreaming, isWaitingForStream, streamingContent, streamUx,
     thinkingTrace, streamMode, streamSources, streamProvider,
     councilAnalyzing, councilExperts, councilMembers, isSynthesizing,
-    prepareForRetry, reconnectToStream, sendMessage, sendMessageWithAttachments,
+    prepareForRetry, reconnectToStream, cancelStream, sendMessage, sendMessageWithAttachments,
     sendAudioMessage, retryMessage, addFeedback,
   } = useGeminiChat({
     sessionId: currentSessionId || undefined,
@@ -1657,28 +1657,41 @@ export function StudentDashboard() {
                             <UserPlus className="w-5 h-5" />
                           </button>
                         )}
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || isStreaming || isWaitingForStream || (!input.trim() && attachments.length === 0)}
-                          className={`p-2 rounded-xl transition-all relative ${
-                            isSubmitting || isStreaming || isWaitingForStream
-                              ? 'bg-gray-800 text-violet-400'
-                              : input.trim() || attachments.length > 0
-                                ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90'
-                                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                          }`}
-                        >
-                          {isSubmitting || isStreaming || isWaitingForStream ? (
-                            <div className="relative w-5 h-5">
-                              <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="opacity-20" />
-                                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                              </svg>
+                        {isStreaming ? (
+                          <button
+                            type="button"
+                            onClick={cancelStream}
+                            className="p-2 rounded-xl transition-all bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"
+                            title="Stop generating"
+                          >
+                            <div className="w-5 h-5 flex items-center justify-center">
+                              <div className="w-3 h-3 rounded-sm bg-current" />
                             </div>
-                          ) : (
-                            <Send className="w-5 h-5" />
-                          )}
-                        </button>
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={isSubmitting || isWaitingForStream || (!input.trim() && attachments.length === 0)}
+                            className={`p-2 rounded-xl transition-all relative ${
+                              isSubmitting || isWaitingForStream
+                                ? 'bg-gray-800 text-violet-400'
+                                : input.trim() || attachments.length > 0
+                                  ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90'
+                                  : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                            }`}
+                          >
+                            {isSubmitting || isWaitingForStream ? (
+                              <div className="relative w-5 h-5">
+                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="opacity-20" />
+                                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                                </svg>
+                              </div>
+                            ) : (
+                              <Send className="w-5 h-5" />
+                            )}
+                          </button>
+                        )}
                       </div>
                     </>
                   )}

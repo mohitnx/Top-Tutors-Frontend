@@ -151,6 +151,17 @@ export const getGeminiStreamState = (
   }
 };
 
+export const cancelGeminiStream = (
+  streamId: string,
+  callback?: (response: { success: boolean; error?: string }) => void
+): void => {
+  if (geminiSocket?.connected) {
+    geminiSocket.emit('cancelStream', { streamId }, callback);
+  } else {
+    callback?.({ success: false, error: 'Socket not connected' });
+  }
+};
+
 // ============================================
 // Stream Event Listeners
 // ============================================

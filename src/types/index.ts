@@ -853,6 +853,8 @@ export interface StreamChunk {
     filename: string;
     messageId: string;
   };
+  streamId?: string;
+  cancelled?: boolean;
 }
 
 // Council Mode Events

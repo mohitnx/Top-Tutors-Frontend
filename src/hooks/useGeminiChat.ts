@@ -18,6 +18,7 @@ import {
   offCouncilMemberComplete,
   onCouncilSynthesisStart,
   offCouncilSynthesisStart,
+  cancelGeminiStream,
 } from '../services/geminiSocket';
 import {
   StreamChunk,
@@ -77,6 +78,7 @@ export function useGeminiChat({
   const [streamMode, setStreamMode] = useState<'single' | 'deep-think' | 'deep-research' | 'council' | null>(null);
   const [streamSources, setStreamSources] = useState<{ title: string; url?: string }[]>([]);
   const [streamProvider, setStreamProvider] = useState<string | null>(null);
+  const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
 
   // Refs to hold latest callbacks
   const onStreamStartRef = useRef(onStreamStart);
@@ -175,6 +177,7 @@ export function useGeminiChat({
           }
           preserveContentOnNextStartRef.current = false;
           setStreamingMessageId(chunk.messageId);
+          setActiveStreamId(chunk.streamId || null);
           onStreamStartRef.current?.(chunk.messageId, chunk.sessionId);
           break;
 
@@ -219,6 +222,7 @@ export function useGeminiChat({
           setStreamStatus(null);
           setStreamingContent('');
           setStreamingMessageId(null);
+          setActiveStreamId(null);
           setStreamStartedAtMs(null);
           setLastStreamEventAtMs(null);
           setLastRealChunkAtMs(null);
@@ -231,6 +235,7 @@ export function useGeminiChat({
           setIsWaitingForStream(false);
           setStreamStatus(null);
           setStreamingMessageId(null);
+          setActiveStreamId(null);
           setStreamStartedAtMs(null);
           setLastStreamEventAtMs(null);
           setLastRealChunkAtMs(null);
@@ -546,6 +551,16 @@ export function useGeminiChat({
     };
   }, [isStreaming, isWaitingForStream, lastRealChunkAtMs, lastStreamEventAtMs, streamStartedAtMs, uxNowTick, councilAnalyzing, isSynthesizing, streamStatus]);
 
+  const cancelStream = useCallback(() => {
+    if (activeStreamId) {
+      cancelGeminiStream(activeStreamId, (response) => {
+        if (!response.success) {
+          console.warn('[useGeminiChat] Cancel stream failed:', response.error);
+        }
+      });
+    }
+  }, [activeStreamId]);
+
   return {
     isConnected,
     isStreaming,
@@ -564,6 +579,7 @@ export function useGeminiChat({
     isSynthesizing,
     prepareForRetry,
     reconnectToStream,
+    cancelStream,
     sendMessage,
     sendMessageWithAttachments,
     sendAudioMessage,
