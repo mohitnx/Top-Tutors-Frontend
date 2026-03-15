@@ -595,6 +595,7 @@ export function StudentDashboard() {
   // Input state
   const [input, setInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
 
   // Active tutor session state
@@ -682,6 +683,7 @@ export function StudentDashboard() {
       });
     },
     onStreamEnd: (chunk) => {
+      setIsCancelling(false);
       // Read the full answer aloud if readAloud was enabled for this message
       if (chunk.readAloud) {
         const answerText = chunk.fullContent ?? streamingContent ?? '';
@@ -965,7 +967,13 @@ export function StudentDashboard() {
   // Handle text submission
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if ((!input.trim() && attachments.length === 0) || isSubmitting || isStreaming) return;
+    if ((!input.trim() && attachments.length === 0) || isSubmitting) return;
+
+    // If currently streaming, cancel it first then proceed
+    if (isStreaming) {
+      cancelStream();
+      setIsCancelling(false);
+    }
 
     // Stop any ongoing speech when sending a new message
     if (isSpeaking) stopSpeaking();
@@ -1431,7 +1439,7 @@ export function StudentDashboard() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
                   placeholder={isRecording ? (speechRecSupported ? 'Listening... speak now' : 'Recording... tap send when done') : 'Ask me anything about Math, Science, or any subject...'}
                   rows={1}
-                  disabled={isSubmitting || isStreaming}
+                  disabled={isSubmitting}
                   readOnly={isRecording}
                   onFocus={() => setIsTextareaFocused(true)}
                   onBlur={() => setTimeout(() => setIsTextareaFocused(false), 150)}
@@ -1657,16 +1665,27 @@ export function StudentDashboard() {
                             <UserPlus className="w-5 h-5" />
                           </button>
                         )}
-                        {isStreaming ? (
+                        {/* Unified button: stop (streaming + no input) / send (has input or not streaming) */}
+                        {isStreaming && !input.trim() && attachments.length === 0 ? (
                           <button
                             type="button"
-                            onClick={cancelStream}
-                            className="p-2 rounded-xl transition-all bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"
-                            title="Stop generating"
+                            disabled={isCancelling}
+                            onClick={() => { setIsCancelling(true); cancelStream(); }}
+                            className={`p-2 rounded-xl transition-all ${isCancelling ? 'bg-orange-500/15 text-orange-400 cursor-wait' : 'bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300'}`}
+                            title={isCancelling ? 'Stopping...' : 'Stop generating'}
                           >
-                            <div className="w-5 h-5 flex items-center justify-center">
-                              <div className="w-3 h-3 rounded-sm bg-current" />
-                            </div>
+                            {isCancelling ? (
+                              <div className="relative w-5 h-5">
+                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="opacity-20" />
+                                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                                </svg>
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 flex items-center justify-center">
+                                <div className="w-3 h-3 rounded-sm bg-current" />
+                              </div>
+                            )}
                           </button>
                         ) : (
                           <button
