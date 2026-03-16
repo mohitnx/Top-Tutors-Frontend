@@ -703,11 +703,11 @@ export function StudentDashboard() {
     },
     onStreamEnd: (chunk) => {
       setIsCancelling(false);
-      // Read the full answer aloud if readAloud was enabled and not cancelled
-      if (chunk.readAloud && !chunk.cancelled) {
-        const answerText = chunk.fullContent ?? streamingContent ?? '';
-        if (answerText) speakAnswer(answerText);
-      }
+      // Read-aloud disabled for now (voice too robotic)
+      // if (chunk.readAloud && !chunk.cancelled) {
+      //   const answerText = chunk.fullContent ?? streamingContent ?? '';
+      //   if (answerText) speakAnswer(answerText);
+      // }
 
       const finalTrace = chunk.thinkingTrace || thinkingTrace;
       const finalMode = chunk.mode || streamMode;
